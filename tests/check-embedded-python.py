@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Fail when a `python3 -c '...'` block in a shell script is cut short by a quote.
 
+The scripts now run the interpreter scripts/find-python.sh resolved, as
+`"${PY[@]}" -c '...'`; both spellings are scanned.
+
 The shell string ends at the FIRST single quote after the opening one — so an
 apostrophe anywhere in the program, including in a comment, silently shortens it.
 Bash then parses the remainder as arguments and redirections, which is usually still
@@ -14,7 +17,7 @@ Two signals separate a truncation from a real end, and either one is enough:
 """
 import sys
 
-OPEN = "python3 -c '"
+OPENS = ("python3 -c '", "\"${PY[@]}\" -c '")
 
 
 def problems(path):
@@ -22,10 +25,11 @@ def problems(path):
     out = []
     at = 0
     while True:
-        i = src.find(OPEN, at)
-        if i < 0:
+        hits = [(i, o) for o in OPENS for i in [src.find(o, at)] if i >= 0]
+        if not hits:
             return out
-        start = i + len(OPEN)
+        i, opener = min(hits)
+        start = i + len(opener)
         end = src.find("'", start)
         at = end + 1 if end >= 0 else start
         if end < 0:

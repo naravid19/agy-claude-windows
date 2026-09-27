@@ -44,8 +44,9 @@ PROMPT="${*:-}"
 
 # Default prices from prices.json (env vars still override); Gemini rate by tier.
 PRICES="$HERE/../prices.json"
-if [ -f "$PRICES" ] && command -v python3 >/dev/null 2>&1; then
-  eval "$(python3 - "$PRICES" "$TIER" 2>/dev/null <<'PY'
+. "$HERE/find-python.sh"
+if [ -f "$PRICES" ] && find_python; then
+  eval "$("${PY[@]}" - "$PRICES" "$TIER" 2>/dev/null <<'PY'
 import json,sys
 try:
     d=json.load(open(sys.argv[1])); t=sys.argv[2]
@@ -55,7 +56,7 @@ except Exception: pass
 PY
 )"
 fi
-# Last-resort fallbacks, used only when prices.json or python3 is unavailable. Keep them
+# Last-resort fallbacks, used only when prices.json or Python is unavailable. Keep them
 # in step with prices.json — a stale hardcoded rate here quotes a wrong number in exactly
 # the situation where nobody can see where it came from.
 CLAUDE_IN_PER_M="${CLAUDE_IN_PER_M:-${_CIN:-5}}"

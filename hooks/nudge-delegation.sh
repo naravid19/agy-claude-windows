@@ -24,8 +24,11 @@ IN="$(cat 2>/dev/null || true)"
 [ -n "$IN" ] || exit 0
 
 # Extract ONLY the prompt field (matching on the whole payload would false-positive
-# on cwd/paths). python3 is already a plugin dependency (measure-session, agy-trace).
-PROMPT="$(printf '%s' "$IN" | python3 -c 'import json,sys
+# on cwd/paths). Python is already a plugin dependency (measure-session, agy-trace).
+# No working Python: stay quiet, like any other prompt the hook cannot read.
+. "$(dirname "$0")/../scripts/find-python.sh"
+find_python || exit 0
+PROMPT="$(printf '%s' "$IN" | "${PY[@]}" -c 'import json,sys
 try: print(json.load(sys.stdin).get("prompt",""))
 except Exception: pass' 2>/dev/null || true)"
 [ -n "$PROMPT" ] || exit 0

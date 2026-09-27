@@ -28,7 +28,7 @@
 #     prompts — command substitution inside double quotes is still blocked because
 #     bash would expand it). Leading/trailing whitespace is stripped first, so a
 #     trailing newline is fine; an internal one is two commands and stays blocked;
-#   * fails CLOSED (block) if the JSON is unparseable or python3 is unavailable.
+#   * fails CLOSED (block) if the JSON is unparseable or no working Python is found.
 #
 # On a block it prints the SPECIFIC reason to stderr before the generic message
 # (issue #51). Claude Code feeds PreToolUse stderr back to the agent, so the caller
@@ -44,13 +44,14 @@ input="$(cat)"
 
 BLOCK_MSG="[antigravity-delegate] blocked: this subagent may only run agy-delegate / agy-job, as a BARE name with no path and no pipeline. No other commands, pipes, chaining, redirection, substitution, comments, or unquoted newlines. To give agy a repository, pass --dir <repo-root> rather than piping content in. Delegate file work to agy; verification is the caller's job."
 
-# python3 gives a correct, quote-aware parse. Fail CLOSED if it's missing.
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "$BLOCK_MSG (python3 unavailable — failing closed)" >&2
+# Python gives a correct, quote-aware parse. Fail CLOSED if none works.
+. "$(dirname "$0")/../scripts/find-python.sh"
+if ! find_python; then
+  echo "$BLOCK_MSG (no working Python 3 — tried $PY_CANDIDATES — failing closed)" >&2
   exit 2
 fi
 
-if AGY_GATE_INPUT="$input" python3 - <<'PY'
+if AGY_GATE_INPUT="$input" "${PY[@]}" - <<'PY'
 import json, os, shlex, sys
 
 raw = os.environ.get("AGY_GATE_INPUT", "")

@@ -356,7 +356,9 @@ for d in "${ADD_DIRS[@]:-}"; do [ -n "$d" ] && ARGS+=(--add-dir "$d"); done
 #
 # Gated three ways, falling back to plain text if any is unmet:
 #   * agy actually advertises --output-format (older versions don't),
-#   * python3 is available to parse (the bash-only path stays dependency-free),
+#   * a working Python is found to parse (the bash-only path stays dependency-free),
+#     judged by running it: `command -v python3` also finds the Windows Store stub,
+#     which then fails the unwrap and leaks the raw envelope to stdout,
 #   * the user hasn't opted out (structured_output=off).
 # NOTE: agy 1.1.8 emits a RAW newline inside the "response" string, which strict
 # JSON parsers reject — so we parse with strict=False. (Reported upstream.)
@@ -375,11 +377,12 @@ HELPF=""; ERR=""; OUTF=""
 trap 'rm -f "$HELPF" "$ERR" "$OUTF" 2>/dev/null' EXIT
 
 JSON_MODE=0
+. "$(dirname "$0")/find-python.sh"
 raw_so="${CLAUDE_PLUGIN_OPTION_STRUCTURED_OUTPUT:-on}"
 case "$(printf '%s' "$raw_so" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')" in
   off|false|0|no|disabled) ;;
   *)
-    if [ "$PRINT_CMD" -ne 1 ] && command -v python3 >/dev/null 2>&1; then
+    if [ "$PRINT_CMD" -ne 1 ] && find_python; then
       # Capability probe. Deliberately NOT `agy --help | grep -q`: `grep -q` exits at
       # the first match and closes the pipe, so `agy --help` can die of SIGPIPE (141)
       # and, under `set -o pipefail`, the whole pipeline reads as "failed" — silently
@@ -470,7 +473,7 @@ if [ "$JSON_MODE" -eq 1 ] && [[ "$OUT" = *[!$' \t\n\r']* ]]; then
   # come out as one space-separated line, same file discipline as the error text.
   JDEN="$(mktemp "${TMPDIR:-/tmp}/agy-den.XXXXXX")"
   meta="$(AGY_JSON="$OUT" AGY_RESP_FILE="$RESP" AGY_ERR_FILE="$JERR" AGY_DEN_FILE="$JDEN" \
-        AGY_MODEL="$MODEL" AGY_TIER="$USAGE_TIER" python3 - <<'PY' 2>/dev/null || true
+        AGY_MODEL="$MODEL" AGY_TIER="$USAGE_TIER" "${PY[@]}" - <<'PY' 2>/dev/null || true
 import json, os, sys
 raw = os.environ.get("AGY_JSON", "")
 try:

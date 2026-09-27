@@ -27,9 +27,10 @@
 #   agy-trace.sh --list [N]                                    N most recent transcripts (default 10)
 #   agy-trace.sh -h | --help
 #
-# Exit codes: 0 ok | 1 usage | 2 transcript not found
+# Exit codes: 0 ok | 1 usage | 2 transcript not found | 16 no working Python 3
 #
 set -euo pipefail
+. "$(dirname "$0")/find-python.sh"
 
 # Override for tests; real location is agy's brain dir.
 BRAIN="${AGY_BRAIN_DIR:-$HOME/.gemini/antigravity-cli/brain}"
@@ -81,8 +82,9 @@ list_recent() {
 # Audit summary: what the executor DID, in one screen. This is the verification
 # surface for a delegation — step-type counts plus every command that failed.
 audit() { # $1 = transcript path
+  need_python agy-trace   # before any output: no half-printed report on exit 16
   echo "# audit $1"
-  python3 - "$1" <<'PY'
+  "${PY[@]}" - "$1" <<'PY'
 import json, sys, collections
 counts, failures, steps = collections.Counter(), [], 0
 with open(sys.argv[1], encoding="utf-8", errors="replace") as fh:
@@ -116,8 +118,9 @@ PY
 }
 
 pretty() { # $1 = transcript path
+  need_python agy-trace
   echo "# $1"
-  python3 - "$1" <<'PY'
+  "${PY[@]}" - "$1" <<'PY'
 import json, sys
 path = sys.argv[1]
 with open(path, encoding="utf-8", errors="replace") as fh:

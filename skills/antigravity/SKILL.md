@@ -126,7 +126,7 @@ token usage (input / output / thinking / **cache_read**) is reported as an `AGY_
 {...}` line on stderr — so the Gemini side of a delegation can finally be *measured*, not
 estimated. The line also carries `model` and `tier` (the tier the model was derived from;
 empty for an explicit `--model`) and agy's `duration_seconds` / `num_turns` (1.2.x; 0 on
-older agy), so a log prices itself per tier without a join back to the command. Older agy (or no `python3`) transparently falls back to the plain-text path;
+older agy), so a log prices itself per tier without a join back to the command. Older agy (or no working Python 3) transparently falls back to the plain-text path;
 force it with the `structured_output` option.
 
 > **Accounting semantics for `AGY_USAGE` (verified — get this wrong and your cost math

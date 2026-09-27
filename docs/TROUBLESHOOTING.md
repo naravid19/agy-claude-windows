@@ -169,7 +169,7 @@ On classifiable failures the wrapper prints a machine-readable line to stderr:
 | 13 | agy not on PATH | install the Antigravity CLI |
 | 14 | model unavailable | the `--model` / `tier_*` / `default_model` name isn't in `agy models` (agy ≥ 1.1.2 hard-fails instead of silently downgrading) — run `agy models` and fix the name |
 | 15 | permission denied | a tool needed permission headless — **both** shapes: the soft deny (rc 0, empty stdout, `auto-denied` on stderr — agy 1.1.3+, and again from 1.1.20, measured on 1.1.25) and 1.1.13's hard error (rc 1, `user denied permission`); since 1.1.27 the tool is also named in the envelope's `denied_actions` (measured on 1.2.0). Add a `permissions.allow` rule covering the target, or pass `--yolo`; run on a branch |
-| 16 | python3 not on PATH (`agy-migrate` only) | install python3 (`brew install python3`) |
+| 16 | no working Python 3 (`agy-migrate`, `measure-session`, `agy-trace`) — `python3`, `python` and `py -3` are each tried by running them, so the Windows Store alias stub does not count | install Python 3 (`brew install python3`, your package manager, or python.org); on Windows, turn off the `python3` App execution alias if it opens the Store. `agy-doctor` names the interpreter it found |
 | 17 | one or more migration steps failed (`agy-migrate` only) | read the named steps; the run is still revertible with `agy-migrate --uninstall --apply` |
 | 18 | prerequisite missing (`agy-migrate` only) | no Claude Code config dir; agy has never been run; or `--include-repos` was passed with no `git` on PATH (git is what decides which directories are repositories — install it, or drop the flag) |
 

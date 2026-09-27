@@ -2,4 +2,9 @@
 # bin/ entrypoint on the Bash-tool PATH (Claude Code adds a plugin's bin/ to PATH).
 # $CLAUDE_PLUGIN_ROOT is NOT exported to model-run Bash (issue #11), so commands and
 # skills invoke this bare name; it forwards to the implementation in ../scripts/measure-session.py.
-exec "$(cd "$(dirname "$0")/.." && pwd)/scripts/measure-session.py" "$@"
+# Through the resolved interpreter, not the .py's shebang: on Windows `python3` can be
+# the Store alias stub. Exit 16 is "no Python", as in bin/agy-migrate.
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+. "$ROOT/scripts/find-python.sh"
+need_python measure-session
+exec "${PY[@]}" "$ROOT/scripts/measure-session.py" "$@"

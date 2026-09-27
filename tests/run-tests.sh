@@ -18,6 +18,18 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 # and on push, and counting it green there would hide the fact that nothing judged it.
 PASS=0; FAIL=0; SKIP=0
 
+# The suite's own `python3` calls need a real Python 3. On Windows `python3` is often the
+# Microsoft Store alias stub, so when the plugin's resolver picks something else, a
+# `python3` shim first on PATH points at it. With a working python3 nothing changes.
+# shellcheck source=../scripts/find-python.sh
+. "$ROOT/scripts/find-python.sh"
+find_python || { echo "FAIL: the suite needs a working Python 3 ($PY_CANDIDATES)"; exit 1; }
+REAL_PY="$("${PY[@]}" -c 'import sys; print(sys.executable)')"
+command -v cygpath >/dev/null 2>&1 && REAL_PY="$(cygpath -u "$REAL_PY")"
+py_shim() { printf '#!/bin/sh\nexec %q "$@"\n' "$REAL_PY" > "$1"; chmod +x "$1"; }
+mkdir -p "$TMP/py"; export PATH="$TMP/py:$PATH"
+[ "${PY[*]}" = python3 ] || py_shim "$TMP/py/python3"
+
 # The shipped tier defaults, read from the wrapper — the single source of truth. Every
 # stub `agy models` list and every expectation below uses these, so changing a default is
 # a one-line edit in one file instead of a hunt through ten string literals. Bumping the
@@ -932,6 +944,54 @@ if grep -q "PROACTIVELY" "$AGENT" && grep -q "break-even judgment is yours" "$AG
   echo "ok: delegate agent is proactive AND keeps the break-even judgment"; PASS=$((PASS+1));
 else echo "FAIL: delegate agent missing proactive-with-judgment description"; FAIL=$((FAIL+1)); fi
 
+echo "== Python resolver (python3, python, py -3 — judged by running them) =="
+# A python.org install on Windows ships no python3.exe, so `python3` is the Microsoft
+# Store alias stub: it is on PATH, passes `command -v`, and exits 49 when run. Every
+# `command -v python3` guard was fooled by it — JSON mode leaked the raw envelope, the
+# gate failed closed on every command, the nudge went silent. STORE puts that stub
+# first with a working `python` behind it; NOPY makes all three candidates the stub.
+STORE="$TMP/storepy"; NOPY="$TMP/nopy"; mkdir -p "$STORE" "$NOPY"
+printf '#!/bin/sh\necho "Python was not found; run without arguments to install from the Microsoft Store" >&2\nexit 49\n' > "$STORE/python3"
+for p in python3 python py; do cp "$STORE/python3" "$NOPY/$p"; done
+chmod +x "$STORE/python3" "$NOPY"/*
+py_shim "$STORE/python"
+PYSESS="$TMP/pysess.jsonl"
+printf '%s\n' '{"message":{"role":"assistant","usage":{"output_tokens":5}}}' > "$PYSESS"
+
+out=$(PATH="$STORE:$PATH" STUB_JSON_CAPABLE=1 STUB_MODE=json_ok "$DELEGATE" "hi" 2>"$TMP/py.err"); rc=$?
+check "store-stub python3: delegate unwraps the envelope" 0 "$rc" "JSONBODY" "$out"
+check "store-stub python3: delegate emits AGY_USAGE" 0 "$rc" "AGY_USAGE" "$(cat "$TMP/py.err")"
+check "store-stub python3: gate allows the wrapper" 0 "$(PATH="$STORE:$PATH" gate_rc '"agy-delegate \"hi\""')"
+check "store-stub python3: gate still denies anything else" 2 "$(PATH="$STORE:$PATH" gate_rc '"ls"')"
+out=$(printf '%s' '{"prompt":"migrate all files"}' | PATH="$STORE:$PATH" "$NUDGE" 2>/dev/null); rc=$?
+check "store-stub python3: nudge still nudges" 0 "$rc" "additionalContext" "$out"
+out=$(PATH="$STORE:$PATH" "$ROOT/bin/measure-session" "$PYSESS" T 2>&1); rc=$?
+check "store-stub python3: measure-session starts" 0 "$rc" "TOTAL tokens" "$out"
+out=$(PATH="$STORE:$PATH" "$ROOT/bin/agy-migrate" --help 2>&1); rc=$?
+check "store-stub python3: agy-migrate starts" 0 "$rc" "usage" "$out"
+out=$(PATH="$STORE:$PATH" bash "$ROOT/scripts/doctor.sh" 2>&1)
+check "store-stub python3: doctor names the fallback" 0 0 "Python: python " "$out"
+# Linux/macOS must not change: a python3 that works is still the one picked.
+REALPY3="$TMP/realpy3"; mkdir -p "$REALPY3"; py_shim "$REALPY3/python3"
+out=$(PATH="$REALPY3:$PATH" bash "$ROOT/scripts/doctor.sh" 2>&1)
+check "working python3: doctor picks python3 first" 0 0 "Python: python3 " "$out"
+
+out=$(PATH="$NOPY:$PATH" "$ROOT/bin/agy-migrate" --help 2>&1); rc=$?
+check "no Python: agy-migrate exits 16 naming all three candidates" 16 "$rc" "python3, python, py -3" "$out"
+out=$(PATH="$NOPY:$PATH" "$ROOT/bin/measure-session" "$PYSESS" 2>&1); rc=$?
+check "no Python: measure-session exits 16 naming all three candidates" 16 "$rc" "python3, python, py -3" "$out"
+out=$(PATH="$NOPY:$PATH" "$ROOT/bin/agy-trace" --audit "$PYSESS" 2>&1); rc=$?
+check "no Python: agy-trace exits 16 naming all three candidates" 16 "$rc" "python3, python, py -3" "$out"
+if has "# audit" "$out"; then echo "FAIL: no Python: agy-trace printed a report header before failing"; FAIL=$((FAIL+1));
+else echo "ok: no Python: agy-trace fails before printing anything"; PASS=$((PASS+1)); fi
+out=$(PATH="$NOPY:$PATH" bash "$ROOT/scripts/doctor.sh" 2>&1); rc=$?
+check "no Python: doctor fails with a fix hint" 1 "$rc" "no working Python 3" "$out"
+check "no Python: gate fails closed" 2 "$(PATH="$NOPY:$PATH" gate_rc '"agy-delegate \"hi\""')"
+# No Python means no JSON mode: agy is never asked for the envelope, so none can leak.
+out=$(PATH="$NOPY:$PATH" STUB_JSON_CAPABLE=1 STUB_MODE=args "$DELEGATE" "hi" 2>/dev/null); rc=$?
+if [ "$rc" = 0 ] && ! has "--output-format" "$out"; then echo "ok: no Python: delegate falls back to plain text"; PASS=$((PASS+1));
+else echo "FAIL: no Python: delegate asked for JSON it cannot unwrap (rc=$rc)"; FAIL=$((FAIL+1)); fi
+
 echo "== bin/ entrypoints (issue #11: \$CLAUDE_PLUGIN_ROOT not on model-run Bash) =="
 BIN="$ROOT/bin"
 for b in agy-delegate agy-job agy-cost-compare agy-doctor cloud-debug agy-trace measure-session agy-media; do
@@ -1612,6 +1672,7 @@ mcp_count() { # $1 = config root; echoes "<rc> <count>"
   local n rc
   n="$(AGY_CONFIG_DIR="$1" bash -c '
     source_fn() { sed -n "/^has_stdio_mcp() {/,/^}/p" "$1"; }
+    . "'"$ROOT"'/scripts/find-python.sh"; HAVE_PY=0; find_python && HAVE_PY=1  # as doctor check 1b
     eval "$(source_fn "'"$ROOT"'/scripts/doctor.sh")"
     has_stdio_mcp' 2>/dev/null)"; rc=$?
   printf '%s %s' "$rc" "${n:-0}"

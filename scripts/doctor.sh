@@ -11,6 +11,8 @@ bad()  { printf '  ✗ %s\n' "$*"; FAIL=1; }
 warn() { printf '  ⚠ %s\n' "$*"; }   # advisory; does NOT fail the check
 info() { printf '    %s\n' "$*"; }
 FAIL=0
+. "$HERE/find-python.sh"
+HAVE_PY=0   # set by check 1b; the Python-backed checks below skip without it
 
 # Normalize a model id to lowercase alphanumerics only, so a configured display name
 # ("Gemini 3.8 Flash (High)") and an `agy models` entry survive comparison regardless of
@@ -63,7 +65,7 @@ agy_guard() { # usage: agy_guard <secs> <agy-args...>
 # the plugin's side, so surface them: a hang there is a config symptom, not bad auth.
 # Prints the count and returns 0 when at least one is configured.
 has_stdio_mcp() {
-  command -v python3 >/dev/null 2>&1 || return 1
+  [ "$HAVE_PY" -eq 1 ] || return 1
   # TWO sources, per agy's own embedded docs:
   #   "Global Configuration: ~/.gemini/config/mcp_config.json (applies to all ...)"
   #   "Plugin Configuration: plugins/<plugin_name>/mcp_config.json (active ...)"
@@ -75,7 +77,7 @@ has_stdio_mcp() {
   for p in "$root"/plugins/*/mcp_config.json; do
     [ -r "$p" ] && files+=("$p")
   done
-  python3 -c '
+  "${PY[@]}" -c '
 import json, sys
 n = 0
 for path in sys.argv[1:]:
@@ -111,9 +113,9 @@ sys.exit(0 if n else 1)
 # the grant simply is not there and the write is soft-denied for no visible reason.
 # Same typo, opposite failures, no message either time.
 bad_allow_rules() {   # $1 = the allow rules, one per line
-  command -v python3 >/dev/null 2>&1 || return 1
+  [ "$HAVE_PY" -eq 1 ] || return 1
   [ -n "${1:-}" ] || return 1
-  python3 -c '
+  "${PY[@]}" -c '
 import re, shlex, sys
 
 # Rules arrive as text, one per line, so the SOURCE is the callers business — the file
@@ -217,8 +219,8 @@ allow_rules() {
         # the version claims looks like. Fall through to the file rather than report clean.
       fi ;;
   esac
-  [ -f "$SETTINGS" ] || return 1
-  python3 -c '
+  [ -f "$SETTINGS" ] && [ "$HAVE_PY" -eq 1 ] || return 1
+  "${PY[@]}" -c '
 import json, sys
 try:
     allow = ((json.load(open(sys.argv[1])) or {}).get("permissions") or {}).get("allow")
@@ -283,6 +285,21 @@ if command -v agy >/dev/null 2>&1; then
 else
   bad "agy NOT on PATH"
   info "fix: install the Antigravity CLI, then ensure its bin dir is on PATH"
+fi
+
+# 1b. a Python that actually RUNS. Several checks below, the delegate gate, the nudge
+#     hook, JSON mode, agy-migrate and measure-session all need one. On Windows
+#     `python3` is often the Store alias stub, which `command -v` finds and which exits
+#     49 when run — doctor used to skip its Python checks silently and still print
+#     "All checks passed".
+if find_python; then
+  HAVE_PY=1
+  ok "Python: ${PY[*]} ($("${PY[@]}" -c 'import sys; print(sys.version.split()[0])' 2>/dev/null))"
+else
+  bad "no working Python 3 found (tried $PY_CANDIDATES)"
+  info "fix: install Python 3 (python.org, or your package manager's python3)."
+  info "on Windows, if \`python3\` opens the Microsoft Store, that is its App execution alias:"
+  info "turn it off in Settings > Apps > Advanced app settings > App execution aliases."
 fi
 
 # 2. agy authenticated (can list models). Guarded by a wall-clock timeout so a

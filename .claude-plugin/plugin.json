@@ -64,7 +64,7 @@
     "structured_output": {
       "type": "string",
       "title": "Use agy's structured JSON output",
-      "description": "When on (default), agy-delegate runs agy with --output-format json (agy >= 1.1.8, requires python3) to classify failures from the structured error and report token usage as an AGY_USAGE line on stderr. The text on stdout is unchanged. Set to off/false/0/no to force the plain-text path.",
+      "description": "When on (default), agy-delegate runs agy with --output-format json (agy >= 1.1.8, requires a working Python 3: python3, python or py -3) to classify failures from the structured error and report token usage as an AGY_USAGE line on stderr. The text on stdout is unchanged. Set to off/false/0/no to force the plain-text path.",
       "default": "on"
     },
     "digest_warn_chars": {
