@@ -86,6 +86,7 @@ audit() { # $1 = transcript path
   echo "# audit $1"
   "${PY[@]}" - "$1" <<'PY'
 import json, sys, collections
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # not the locale code page
 counts, failures, steps = collections.Counter(), [], 0
 with open(sys.argv[1], encoding="utf-8", errors="replace") as fh:
     for line in fh:
@@ -122,6 +123,7 @@ pretty() { # $1 = transcript path
   echo "# $1"
   "${PY[@]}" - "$1" <<'PY'
 import json, sys
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # not the locale code page
 path = sys.argv[1]
 with open(path, encoding="utf-8", errors="replace") as fh:
     for i, line in enumerate(fh):

@@ -29,7 +29,8 @@ IN="$(cat 2>/dev/null || true)"
 . "$(dirname "$0")/../scripts/find-python.sh"
 find_python || exit 0
 PROMPT="$(printf '%s' "$IN" | "${PY[@]}" -c 'import json,sys
-try: print(json.load(sys.stdin).get("prompt",""))
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # not the locale code page
+try: print(json.load(sys.stdin.buffer).get("prompt",""))
 except Exception: pass' 2>/dev/null || true)"
 [ -n "$PROMPT" ] || exit 0
 

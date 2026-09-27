@@ -234,9 +234,11 @@ def git_root(path):
     The broad except stays for what it was for: a timeout, or a git that fails on its
     own terms.
     """
+    # UTF-8, not the locale code page; surrogateescape so a non-UTF-8 path round-trips.
     try:
         out = subprocess.run(["git", "-C", path, "rev-parse", "--show-toplevel"],
-                             capture_output=True, text=True, timeout=10)
+                             capture_output=True, text=True, encoding="utf-8",
+                             errors="surrogateescape", timeout=10)
         if out.returncode == 0:
             return out.stdout.strip()
     except FileNotFoundError:
@@ -1214,6 +1216,7 @@ def run_native_import(stage, plugins):
     try:
         r = subprocess.run(["agy", "plugin", "import", "claude"],
                            cwd=stage, env=env, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace",  # display text only
                            timeout=180, stdin=subprocess.DEVNULL)
         return r.returncode, (r.stdout or "") + (r.stderr or "")
     except FileNotFoundError:

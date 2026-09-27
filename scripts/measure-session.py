@@ -16,7 +16,7 @@ def load_prices():
     for p in (os.path.join(here, "..", "prices.json"),
               os.path.join(here, "prices.json"), "prices.json"):
         try:
-            with open(p) as f:
+            with open(p, encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             continue
@@ -37,7 +37,7 @@ def resolve(arg):
 def measure(path):
     ti = to = tcc = tcr = turns = 0
     tools = {}
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
       for line in f:
         try:
             o = json.loads(line)
@@ -64,6 +64,9 @@ def measure(path):
                 total=ti + to + tcc + tcr, tools=tools)
 
 if __name__ == "__main__":
+    # UTF-8, not the locale code page. surrogateescape because the text is from argv,
+    # which Linux under LC_ALL=C decodes that way; "replace" would print ? for it.
+    sys.stdout.reconfigure(encoding="utf-8", errors="surrogateescape")
     if len(sys.argv) < 2:
         print(__doc__); sys.exit(1)
     path = resolve(sys.argv[1])

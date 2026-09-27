@@ -41,7 +41,7 @@ def calls(line, fn):
 
 def check(path):
     """Return [(name, call_line, definition_line)] for every use above a definition."""
-    src = open(path).read().split("\n")
+    src = open(path, encoding="utf-8").read().split("\n")
 
     defs = {}
     for i, line in enumerate(src, 1):

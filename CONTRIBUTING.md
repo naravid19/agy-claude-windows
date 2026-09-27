@@ -41,7 +41,7 @@ shellcheck scripts/*.sh tests/*.sh   # CI gates on --severity=error
 ```
 
 - **Tests pass** and shellcheck is clean (CI runs both — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml)). CI runs the suite on Ubuntu **and** on macOS `/bin/bash` 3.2, so a bash-4-ism fails there even if it passed for you on Linux.
-- If you touch a manifest, `python3 -c "import json; json.load(open('.claude-plugin/plugin.json'))"` (and `marketplace.json`, `prices.json`) still parse.
+- If you touch a manifest, `python3 -c "import json; json.load(open('.claude-plugin/plugin.json', encoding='utf-8'))"` (and `marketplace.json`, `prices.json`) still parse.
 - **Keep the skill honest.** [`skills/antigravity/SKILL.md`](skills/antigravity/SKILL.md) is the plugin's brain — if behavior changes, update it. Don't claim a capability the code doesn't have.
 - **Cost numbers are estimates.** If you quote figures, say so and point at `prices.json`.
 - Add a line to [`CHANGELOG.md`](CHANGELOG.md). There is no "Unreleased" section: a fix goes

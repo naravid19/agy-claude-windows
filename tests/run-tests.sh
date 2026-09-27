@@ -712,7 +712,8 @@ else echo "ok: no clip NOTE when under the cap"; PASS=$((PASS+1)); fi
 echo "== hooks =="
 HOOKS="$ROOT/hooks"
 
-python3 -c "import json; json.load(open('$HOOKS/policy-context.json'))" 2>/dev/null; rc=$?
+# The path goes in as argv, not spliced into the source: MSYS converts /c/... in argv only.
+python3 -c 'import json,sys; json.load(open(sys.argv[1], encoding="utf-8"))' "$HOOKS/policy-context.json" 2>/dev/null; rc=$?
 check "policy-context.json is valid JSON" 0 "$rc"
 
 out=$("$HOOKS/inject-policy.sh" 2>/dev/null); rc=$?
@@ -735,7 +736,7 @@ check "check-agy (agy absent) -> exit 0 + warns" 0 "$rc" "not on PATH" "$err"
 # hooks.json structural shape (all events: command hooks referencing the plugin root)
 python3 - "$HOOKS/hooks.json" <<'PY' 2>/dev/null; rc=$?
 import json,sys
-hooks=json.load(open(sys.argv[1]))["hooks"]
+hooks=json.load(open(sys.argv[1], encoding="utf-8"))["hooks"]
 assert hooks.get("SessionStart") and hooks.get("UserPromptSubmit")
 for groups in hooks.values():
     assert isinstance(groups,list) and groups
@@ -1236,6 +1237,37 @@ echo "== embedded python is not cut short by a quote =="
 if python3 "$HERE/check-embedded-python.py" "$ROOT"/scripts/*.sh "$ROOT"/hooks/*.sh; then
   echo "ok: no embedded python is truncated by a stray quote"; PASS=$((PASS+1));
 else echo "FAIL: an embedded python block is cut short (it runs a partial program)"; FAIL=$((FAIL+1)); fi
+# A `-c` program is argv, which Linux Python under LC_ALL=C decodes as ASCII: one em dash
+# in a COMMENT made doctor's stdio-MCP and allow-rule checks SyntaxErrors, silenced by
+# 2>/dev/null. A heredoc is read as UTF-8 source and may hold anything.
+printf '%s\n' "python3 -c '# a comment — with an em dash" "print(1)'" > "$TMP/ep-nonascii.sh"
+if python3 "$HERE/check-embedded-python.py" "$TMP/ep-nonascii.sh" >/dev/null 2>&1; then
+  echo "FAIL: embedded-python checker passed a non-ASCII -c program"; FAIL=$((FAIL+1));
+else echo "ok: embedded-python checker flags a non-ASCII -c program"; PASS=$((PASS+1)); fi
+
+echo "== every Python open() names its encoding =="
+# Without encoding= open() uses the locale code page (cp874 on Thai Windows), so a UTF-8
+# file breaks only on someone else's machine. Embedded Python in shell counts too.
+if python3 "$HERE/check-open-encoding.py" "$ROOT"/scripts/* "$ROOT"/hooks/*.sh "$ROOT"/bin/* \
+     "$ROOT"/tests/*.py "$ROOT"/tests/*.sh "$ROOT"/.github/workflows/*.yml; then
+  echo "ok: every open() names an encoding"; PASS=$((PASS+1));
+else echo "FAIL: an open() has no encoding= (see above)"; FAIL=$((FAIL+1)); fi
+# The fixtures spell open as $oe_open: written out, this file would fail its own scan.
+oe_open=open
+oe_case() { # $1 = label, $2 = expected rc, $3 = file body
+  local f="$TMP/oe-$1.sh"; printf '%s\n' "$3" > "$f"
+  python3 "$HERE/check-open-encoding.py" "$f" >/dev/null 2>&1; local rc=$?
+  if [ "$rc" = "$2" ]; then echo "ok: open-encoding checker — $1"; PASS=$((PASS+1));
+  else echo "FAIL: open-encoding checker — $1 (rc=$rc, want $2)"; FAIL=$((FAIL+1)); fi
+}
+oe_case bare       1 "d = json.load($oe_open(sys.argv[1]))"
+oe_case write      1 "json.dump(d, $oe_open(p, \"w\"))"
+oe_case multiline  1 "x = $oe_open(os.path.join(a,
+    b), \"w\")"
+oe_case encoding   0 "x = $oe_open(p, \"w\", encoding=\"utf-8\")"
+oe_case binary     0 "x = $oe_open(p, \"rb\")"
+oe_case method     0 "t = tarfile.$oe_open(p)"
+oe_case prose      0 "# a bare $oe_open() uses the locale"
 
 echo "== a CHANGELOG entry cannot land in a section that already shipped =="
 # #77 filed under the released 0.27.0; #82 did it again, branching before #81 opened
@@ -1348,7 +1380,7 @@ cpc_ref="$(cpc_real_base || true)"
 if [ -n "$cpc_ref" ] \
    && git -C "$ROOT" show "$cpc_ref:CHANGELOG.md" > "$TMP/cpc-realbase.md" 2>/dev/null \
    && git -C "$ROOT" show "$cpc_ref:.claude-plugin/plugin.json" > "$TMP/cpc-realplugin.json" 2>/dev/null; then
-  cpc_bv="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' \
+  cpc_bv="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["version"])' \
             "$TMP/cpc-realplugin.json" 2>/dev/null)"
   if [ -z "$cpc_bv" ]; then
     echo "skip: CHANGELOG placement — base plugin.json unreadable at $cpc_ref"; SKIP=$((SKIP+1))
@@ -1692,6 +1724,33 @@ check "no config at all -> rc 1, no false hint" "1 0" "$(mcp_count "$MCPDIR")" "
 printf 'not json' > "$MCPDIR/mcp_config.json"
 check "malformed config is skipped, not fatal" "1 0" "$(mcp_count "$MCPDIR")" "" ""
 
+echo "== UTF-8 files and streams under a non-UTF-8 locale =="
+# Python's default text encoding is the locale's, not UTF-8: cp874 on Thai Windows (and
+# cp1252 on a GitHub Windows runner), ASCII under LC_ALL=C once UTF-8 mode and locale
+# coercion are off. A bare open() then raises on — or silently garbles — a UTF-8 file,
+# and a bare print() of non-ASCII raises. Everything here goes through `2>/dev/null`, so
+# the symptom was a check that quietly found nothing. Thai (ก is undefined in cp1252)
+# and an emoji (undefined in cp874) make every one of those locales fail. LC_ALL does
+# nothing to Windows Python: there the system code page is what gets exercised.
+noutf8() { ( unset PYTHONIOENCODING; export PYTHONUTF8=0 PYTHONCOERCECLOCALE=0 LC_ALL=C; "$@" ); }
+TH='รายงาน ก 🚀'
+printf '{"mcpServers":{"%s":{"command":"node","args":["%s"]}}}' "$TH" "$TH" > "$MCPDIR/mcp_config.json"
+check "stdio MCP counted from a config holding Thai and emoji" "0 1" "$(noutf8 mcp_count "$MCPDIR")" "" ""
+rm -f "$MCPDIR/mcp_config.json"
+# Both halves of the allow-rule check: settings.json read as a file, the rule printed back.
+allow_out="$(noutf8 allow_doctor 1.1.11 '"write_file(<dir>/'"$TH"')"')"
+if has "write_file(<dir>/$TH)" "$allow_out"; then
+  echo "ok: doctor reads and names an allow rule holding Thai and emoji"; PASS=$((PASS+1));
+else echo "FAIL: doctor lost an allow rule holding Thai and emoji"; FAIL=$((FAIL+1)); fi
+CC="$TMP/cc"; mkdir -p "$CC/scripts"
+cp "$ROOT/scripts/agy-cost-compare.sh" "$ROOT/scripts/find-python.sh" "$CC/scripts/"
+printf '#!/bin/sh\necho done\n' > "$CC/scripts/agy-delegate.sh"; chmod +x "$CC/scripts/agy-delegate.sh"
+printf '{"_note":"%s","claude_opus":{"in":7,"out":31},"gemini_flash":{"in":0.5,"out":2},"gemini_pro":{"in":2,"out":12}}' \
+  "$TH" > "$CC/prices.json"
+out="$(noutf8 bash "$CC/scripts/agy-cost-compare.sh" task 2>/dev/null)"; rc=$?
+check "cost-compare prices from a prices.json holding Thai and emoji" 0 "$rc" \
+  "$(printf '%-14s %12.2f %12.2f' Claude 7 31)" "$out"
+
 echo "== agy-media.sh (multimodal delegation) =="
 MEDIA="$ROOT/scripts/agy-media.sh"
 MDIR="$TMP/media"; mkdir -p "$MDIR"
@@ -1784,8 +1843,8 @@ echo "== prices.json / hardcoded-rate drift =="
 out=$(ROOT="$ROOT" python3 - <<'PY' 2>&1
 import json, os, re, sys
 root = os.environ["ROOT"]
-pj = json.load(open(os.path.join(root, "prices.json")))
-src = open(os.path.join(root, "scripts", "agy-cost-compare.sh")).read()
+pj = json.load(open(os.path.join(root, "prices.json"), encoding="utf-8"))
+src = open(os.path.join(root, "scripts", "agy-cost-compare.sh"), encoding="utf-8").read()
 want = {
     "CLAUDE_IN_PER_M":  pj["claude_opus"]["in"],
     "CLAUDE_OUT_PER_M": pj["claude_opus"]["out"],
@@ -1814,8 +1873,8 @@ else echo "FAIL: rate drift — $out"; FAIL=$((FAIL+1)); fi
 out=$(ROOT="$ROOT" python3 - <<'PY' 2>&1
 import json, os, re
 root = os.environ["ROOT"]
-pj = json.load(open(os.path.join(root, "prices.json")))
-src = open(os.path.join(root, "scripts", "agy-delegate.sh")).read()
+pj = json.load(open(os.path.join(root, "prices.json"), encoding="utf-8"))
+src = open(os.path.join(root, "scripts", "agy-delegate.sh"), encoding="utf-8").read()
 m = re.search(r'flash\)\s*echo "\$\{CLAUDE_PLUGIN_OPTION_TIER_FLASH:-([^}]*)\}"', src)
 if not m:
     print("flash tier default not found (model_for_tier pattern changed?)"); raise SystemExit
@@ -1993,25 +2052,25 @@ errs = []
 def need(cond, msg):
     if not cond: errs.append(msg)
 
-pj = json.load(open(p(".claude-plugin", "plugin.json")))
+pj = json.load(open(p(".claude-plugin", "plugin.json"), encoding="utf-8"))
 need(pj.get("name") == "antigravity", "plugin.json name != antigravity")
 need(bool(pj.get("version")), "plugin.json missing version")
 
 # SKILL.md version frontmatter must track plugin.json (PR #14 drifted them: a version
 # bump that forgets the skill leaves stale docs and breaks update recognition reasoning)
-skill_txt = open(p("skills", "antigravity", "SKILL.md")).read()
+skill_txt = open(p("skills", "antigravity", "SKILL.md"), encoding="utf-8").read()
 sm = re.search(r"(?m)^version:\s*(\S+)\s*$", skill_txt)
 need(bool(sm), "SKILL.md missing version frontmatter")
 if sm: need(sm.group(1) == pj.get("version"),
             "SKILL.md version (%s) != plugin.json version (%s)" % (sm.group(1), pj.get("version")))
 
-mp = json.load(open(p(".claude-plugin", "marketplace.json")))
+mp = json.load(open(p(".claude-plugin", "marketplace.json"), encoding="utf-8"))
 plugins = mp.get("plugins", [])
 need(bool(plugins) and plugins[0].get("source") == "./", "marketplace plugins[0].source != ./")
 need(bool(plugins) and plugins[0].get("name") == pj.get("name"), "marketplace plugin name != plugin.json name")
 
 # every hook command (all events) resolves to a real file
-hj = json.load(open(p("hooks", "hooks.json")))
+hj = json.load(open(p("hooks", "hooks.json"), encoding="utf-8"))
 cmds = [h["command"] for groups in hj["hooks"].values() for grp in groups for h in grp["hooks"]]
 need(bool(cmds), "no hook commands")
 for c in cmds:
@@ -2023,11 +2082,11 @@ for c in cmds:
 for f in glob.glob(p("commands", "*.md")) + [p("skills", "antigravity", "SKILL.md"), p("agents", "antigravity-delegate.md")]:
     need(os.path.isfile(f), "missing file: " + f)
     if os.path.isfile(f):
-        t = open(f).read()
+        t = open(f, encoding="utf-8").read()
         need(t.startswith("---") and t.count("---") >= 2, "no YAML frontmatter: " + os.path.basename(f))
 
 # the delegate subagent's PreToolUse gate points at a real script
-agent = open(p("agents", "antigravity-delegate.md")).read()
+agent = open(p("agents", "antigravity-delegate.md"), encoding="utf-8").read()
 m = re.search(r"\$\{CLAUDE_PLUGIN_ROOT\}/([^\"']+\.sh)", agent)
 need(bool(m), "agent PreToolUse gate path not found")
 if m: need(os.path.isfile(p(m.group(1))), "agent gate references missing file: " + m.group(1))
@@ -2044,7 +2103,7 @@ for b in ("agy-delegate", "agy-job", "agy-cost-compare", "agy-doctor", "cloud-de
 # path expands empty on marketplace installs (issue #11). They must use the bin names.
 for f in glob.glob(p("commands", "*.md")) + [p("skills", "antigravity", "SKILL.md")]:
     if os.path.isfile(f):
-        t = open(f).read()
+        t = open(f, encoding="utf-8").read()
         need("CLAUDE_PLUGIN_ROOT}/scripts/" not in t and "CLAUDE_PLUGIN_ROOT/scripts/" not in t,
              "invokes $CLAUDE_PLUGIN_ROOT/scripts (empty on model Bash, issue #11): " + os.path.basename(f))
 
@@ -2060,7 +2119,7 @@ def _ctx_strings(o):
     elif isinstance(o, list):
         for x in o: yield from _ctx_strings(x)
 for hf in glob.glob(p("hooks", "*.json")):
-    try: hd = json.load(open(hf))
+    try: hd = json.load(open(hf, encoding="utf-8"))
     except Exception: continue
     for ac in _ctx_strings(hd):
         need("CLAUDE_PLUGIN_ROOT" not in ac,

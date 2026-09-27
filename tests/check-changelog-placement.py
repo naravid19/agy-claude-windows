@@ -138,9 +138,9 @@ def main(argv):
     if not re.match(r"^\d+\.\d+\.\d+$", base_version):
         print("not a version: %s" % base_version)
         return 2
-    with open(base_path) as f:
+    with open(base_path, encoding="utf-8") as f:
         base_text = f.read()
-    with open(head_path) as f:
+    with open(head_path, encoding="utf-8") as f:
         head_text = f.read()
 
     bad = check(base_text, head_text, tuple(int(n) for n in base_version.split(".")))

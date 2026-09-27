@@ -82,12 +82,12 @@ import json, sys
 n = 0
 for path in sys.argv[1:]:
     try:
-        servers = (json.load(open(path)) or {}).get("mcpServers") or {}
+        servers = (json.load(open(path, encoding="utf-8")) or {}).get("mcpServers") or {}
     except Exception:
         continue
     # A stdio server is launched as a local process, so it carries "command"
     # (verified against agy 1.1.9: remote servers use "serverUrl", not the
-    # "url"/"httpUrl" spelling other MCP clients use — do not match on those).
+    # "url"/"httpUrl" spelling other MCP clients use -- do not match on those).
     n += sum(1 for v in servers.values() if isinstance(v, dict) and v.get("command"))
 print(n)
 sys.exit(0 if n else 1)
@@ -117,8 +117,11 @@ bad_allow_rules() {   # $1 = the allow rules, one per line
   [ -n "${1:-}" ] || return 1
   "${PY[@]}" -c '
 import re, shlex, sys
+# UTF-8, not the locale code page. surrogateescape because the text is from argv,
+# which Linux under LC_ALL=C decodes that way; "replace" would print ? for it.
+sys.stdout.reconfigure(encoding="utf-8", errors="surrogateescape")
 
-# Rules arrive as text, one per line, so the SOURCE is the callers business — the file
+# Rules arrive as text, one per line, so the SOURCE is the callers business -- the file
 # for old agy, and agys own resolved view for 1.1.12+. Reading the file was the whole
 # defect: it sees one scope, and agy applies more than one.
 allow = [l for l in sys.argv[1].split(chr(10)) if l.strip()]
@@ -139,10 +142,10 @@ PREFIX = {"time", "!", "{", "}", "[[", "]]", "if", "then", "elif", "else", "fi",
 # holding a real angle-bracketed literal. So the test is applied only OUTSIDE
 # `command(...)`. Angle brackets are shell syntax, and shell is what a command rule
 # contains; the placeholder we ship appears in `write_file(<dir>)` and nowhere else. The
-# cost of that choice is a placeholder inside a command rule going unflagged — a miss,
+# cost of that choice is a placeholder inside a command rule going unflagged -- a miss,
 # which this file prefers to a false positive that sends someone to edit a working rule.
 PLACEHOLDER = re.compile(r"<[A-Za-z0-9_./\-]+>")
-PLACEHOLDER_REASON = "unsubstituted placeholder — replace <...> with a real value"
+PLACEHOLDER_REASON = "unsubstituted placeholder \u2014 replace <...> with a real value"
 
 bad = []
 for e in allow:
@@ -153,7 +156,7 @@ for e in allow:
         bad.append(("(empty string)", "empty entry", "unparseable")); continue
     i = t.find("(")
     if i < 0 or not t.endswith(")"):
-        # Not the NAME(...) shape, so not ours to judge — except an entry that is nothing
+        # Not the NAME(...) shape, so not ours to judge -- except an entry that is nothing
         # but a placeholder, which cannot be anything else.
         if PLACEHOLDER.fullmatch(t):
             bad.append((t, PLACEHOLDER_REASON, "unparseable"))
@@ -181,7 +184,7 @@ for e in allow:
         bad.append((t, "tokenizes to zero command words", "zerowords"))
 
 # CLASS first, and the entry last with its control characters escaped. The reader splits
-# on tabs, so a rule containing one would shift every field after it — and the field that
+# on tabs, so a rule containing one would shift every field after it -- and the field that
 # would move is the class, which decides whether a security consequence gets printed. A
 # newline would be worse: it would split one finding into two lines, the second of them
 # classless. Neither is hypothetical enough to leave to chance in a file that reads
@@ -222,8 +225,9 @@ allow_rules() {
   [ -f "$SETTINGS" ] && [ "$HAVE_PY" -eq 1 ] || return 1
   "${PY[@]}" -c '
 import json, sys
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # not the locale code page
 try:
-    allow = ((json.load(open(sys.argv[1])) or {}).get("permissions") or {}).get("allow")
+    allow = ((json.load(open(sys.argv[1], encoding="utf-8")) or {}).get("permissions") or {}).get("allow")
 except Exception:
     sys.exit(1)
 if not isinstance(allow, list):

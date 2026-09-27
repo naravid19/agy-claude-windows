@@ -39,7 +39,7 @@ jobs:
           import json
           for p in (".claude-plugin/plugin.json", ".claude-plugin/marketplace.json", "prices.json",
                     "hooks/hooks.json", "hooks/policy-context.json"):
-              json.load(open(p))
+              json.load(open(p, encoding="utf-8"))
               print("ok", p)
           PY
 

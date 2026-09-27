@@ -111,7 +111,7 @@ OUT="$(run --roots "$H" --include-repos --apply)"
 SKJ="$H/.gemini/config/skills.json"
 if [ -f "$SKJ" ] && python3 -c "
 import json,sys,os
-e=json.load(open('$SKJ'))['entries']
+e=json.load(open('$SKJ', encoding='utf-8'))['entries']
 p=[x['path'] for x in e]
 sys.exit(0 if os.path.join('$H','.claude','skills') in p and not any(x.startswith('~') for x in p) else 1)"; then
   ok "skills.json registers an ABSOLUTE path (~ is not expanded by agy)"
@@ -145,7 +145,7 @@ else bad "fixture no longer produces 10+ parts, so the wide suffix is untested";
 # Workspace rules are dead without a project, so registration must happen.
 if python3 -c "
 import json,glob,sys
-ok=any(json.load(open(f)).get('name')=='$REPO' for f in glob.glob('$H/.gemini/config/projects/*.json'))
+ok=any(json.load(open(f, encoding='utf-8')).get('name')=='$REPO' for f in glob.glob('$H/.gemini/config/projects/*.json'))
 sys.exit(0 if ok else 1)"; then
   ok "repo registered as an agy project (else .agents/ never loads)"
 else bad "repo not registered"; fi
@@ -159,7 +159,7 @@ else bad "no AGENTS.md symlink"; fi
 PID="$(python3 -c "
 import json,glob
 for f in glob.glob('$H/.gemini/config/projects/*.json'):
-    d=json.load(open(f))
+    d=json.load(open(f, encoding='utf-8'))
     if d.get('name')=='$REPO': print(d['id']); break")"
 if [ -n "$PID" ] && has "agy --project $PID" "$OUT"; then
   ok "the report names 'agy --project <id>', not just 'registered'"
@@ -168,7 +168,7 @@ else bad "project id not surfaced for the user to select"; fi
 MCP="$H/.gemini/config/mcp_config.json"
 if python3 -c "
 import json,sys
-s=json.load(open('$MCP'))['mcpServers']
+s=json.load(open('$MCP', encoding='utf-8'))['mcpServers']
 sys.exit(0 if s['remote-x'].get('serverUrl')=='https://ex.test/mcp'
               and 'url' not in s['remote-x'] and 'type' not in s['local-x'] else 1)"; then
   ok "remote MCP becomes serverUrl; stdio drops Claude's type"
@@ -177,13 +177,13 @@ else bad "MCP translation wrong"; fi
 SET="$H/.gemini/antigravity-cli/settings.json"
 if python3 -c "
 import json,sys
-s=json.load(open('$SET'))
+s=json.load(open('$SET', encoding='utf-8'))
 sys.exit(0 if '$REPO' in (s.get('trustedWorkspaces') or []) else 1)"; then
   ok "trusted projects become trustedWorkspaces"
 else bad "trustedWorkspaces not migrated"; fi
 if python3 -c "
 import json,sys
-s=json.load(open('$SET'))
+s=json.load(open('$SET', encoding='utf-8'))
 sys.exit(0 if not (s.get('permissions') or {}).get('allow') else 1)"; then
   ok "permissions NOT written without --apply-permissions (they widen the grant)"
 else bad "permissions written implicitly"; fi
@@ -192,7 +192,7 @@ if [ -f "$H/.gemini/.agy-migrate/proposed-permissions.json" ]; then
 else bad "no permission proposal"; fi
 if python3 -c "
 import json,sys
-a=json.load(open('$H/.gemini/.agy-migrate/proposed-permissions.json'))['allow']
+a=json.load(open('$H/.gemini/.agy-migrate/proposed-permissions.json', encoding='utf-8'))['allow']
 # command(git) must absorb command(git diff); the quoted pipe must be dropped.
 sys.exit(0 if 'command(git)' in a and 'command(git diff)' not in a
               and not any('|' in x for x in a) else 1)"; then
@@ -218,14 +218,14 @@ else bad "clobbered a user-edited rule"; fi
 # migration. Even when we created the file, undo has to remove our entry only.
 python3 - "$SKJ" <<'PY'
 import json, sys
-d = json.load(open(sys.argv[1]))
+d = json.load(open(sys.argv[1], encoding="utf-8"))
 d["entries"].append({"path": "/somewhere/agy/added/later"})
-json.dump(d, open(sys.argv[1], "w"), indent=2)
+json.dump(d, open(sys.argv[1], "w", encoding="utf-8"), indent=2)
 PY
 run --uninstall --apply >/dev/null 2>&1
 if [ -f "$SKJ" ] && python3 -c "
 import json,sys
-p=[x['path'] for x in json.load(open('$SKJ'))['entries']]
+p=[x['path'] for x in json.load(open('$SKJ', encoding='utf-8'))['entries']]
 sys.exit(0 if p == ['/somewhere/agy/added/later'] else 1)"; then
   ok "uninstall removes only our skills.json entry, keeping foreign ones"
 else bad "uninstall clobbered shared skills.json content"; fi
@@ -239,7 +239,7 @@ else bad "uninstall left artifacts"; fi
 if python3 -c "
 import json,sys,os
 p='$MCP'
-s=(json.load(open(p)) if os.path.exists(p) else {}).get('mcpServers',{})
+s=(json.load(open(p, encoding='utf-8')) if os.path.exists(p) else {}).get('mcpServers',{})
 sys.exit(0 if 'remote-x' not in s else 1)"; then
   ok "uninstall reverts merged JSON keys"
 else bad "uninstall left MCP keys"; fi
@@ -262,9 +262,9 @@ printf '{"mcpServers":{"needs-var":{"command":"bun","args":["--cwd","${CLAUDE_PL
 python3 - "$H" <<'PY2'
 import json, os, sys
 h = sys.argv[1]; p = os.path.join(h, ".claude.json")
-d = json.load(open(p))
+d = json.load(open(p, encoding="utf-8"))
 d["projects"][os.path.join(h, "work", "withvar")] = {"hasTrustDialogAccepted": False}
-json.dump(d, open(p, "w"))
+json.dump(d, open(p, "w", encoding="utf-8"))
 PY2
 OUT="$(run --roots "$H")"
 if ! has "vendor-catalog-server" "$OUT"; then
@@ -286,9 +286,9 @@ printf '# notes\n' > "$H/Library-notes/deep/CLAUDE.md"
 python3 - "$H" <<'PY2'
 import json, os, sys
 h = sys.argv[1]; p = os.path.join(h, ".claude.json")
-d = json.load(open(p))
+d = json.load(open(p, encoding="utf-8"))
 d["projects"][os.path.join(h, ".claude-pro", "proj")] = {"hasTrustDialogAccepted": False}
-json.dump(d, open(p, "w"))
+json.dump(d, open(p, "w", encoding="utf-8"))
 PY2
 # --include-repos so the claudemd unit lists paths instead of only a count.
 OUT="$(run --roots "$H" --include-repos)"
@@ -433,15 +433,15 @@ python3 - "$H" <<'PY2'
 import json, os, sys
 h = sys.argv[1]
 p = os.path.join(h, ".claude.json")
-d = json.load(open(p))
+d = json.load(open(p, encoding="utf-8"))
 for x in (os.path.join(h, "coll_x"), os.path.join(h, "coll", "x")):
     os.makedirs(x, exist_ok=True)
     d["projects"][x] = {"hasTrustDialogAccepted": False}
-json.dump(d, open(p, "w"))
+json.dump(d, open(p, "w", encoding="utf-8"))
 enc = os.path.join(h, ".claude", "projects",
                    __import__("re").sub(r"[/_.]", "-", os.path.join(h, "coll_x")), "memory")
 os.makedirs(enc, exist_ok=True)
-open(os.path.join(enc, "amb.md"), "w").write("---\nname: amb\n---\nbody\n")
+open(os.path.join(enc, "amb.md"), "w", encoding="utf-8").write("---\nname: amb\n---\nbody\n")
 PY2
 OUT="$(run --roots "$H" --include-repos)"
 if has "unresolved" "$OUT" && [ ! -d "$H/coll_x/.agents" ] && [ ! -d "$H/coll/x/.agents" ]; then
@@ -510,30 +510,30 @@ for d in (src, os.path.join(staged, ".claude-plugin"), os.path.join(staged, "com
 # Original plugin: one remote server, one stdio server.
 json.dump({"mcpServers": {"rem": {"type": "http", "url": "https://ex.test/mcp"},
                           "loc": {"command": "echo", "args": ["1"]}}},
-          open(os.path.join(src, ".mcp.json"), "w"))
+          open(os.path.join(src, ".mcp.json"), "w", encoding="utf-8"))
 
 # Exactly what the importer emits: the remote entry gutted to an empty command.
 json.dump({"mcpServers": {"rem": {"command": "", "args": None, "cwd": "", "env": None},
                           "loc": {"command": "echo", "args": ["1"], "cwd": "", "env": None}}},
-          open(os.path.join(staged, "mcp_config.json"), "w"))
+          open(os.path.join(staged, "mcp_config.json"), "w", encoding="utf-8"))
 # ...Claude's hook schema copied verbatim, pointing at a script in hooks/.
 json.dump({"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [
     {"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/run.sh"}]}]}},
-          open(os.path.join(staged, "hooks.json"), "w"))
-json.dump({"hooks": {}}, open(os.path.join(staged, "hooks", "hooks.json"), "w"))
-open(os.path.join(staged, "hooks", "run.sh"), "w").write("#!/bin/sh\n")
-open(os.path.join(staged, "commands", "x.md"), "w").write("---\ndescription: c\n---\nbody\n")
-open(os.path.join(staged, "skills", "p-cmd-x", "SKILL.md"), "w").write(
+          open(os.path.join(staged, "hooks.json"), "w", encoding="utf-8"))
+json.dump({"hooks": {}}, open(os.path.join(staged, "hooks", "hooks.json"), "w", encoding="utf-8"))
+open(os.path.join(staged, "hooks", "run.sh"), "w", encoding="utf-8").write("#!/bin/sh\n")
+open(os.path.join(staged, "commands", "x.md"), "w", encoding="utf-8").write("---\ndescription: c\n---\nbody\n")
+open(os.path.join(staged, "skills", "p-cmd-x", "SKILL.md"), "w", encoding="utf-8").write(
     "---\ndescription: c\n---\nbody\n")           # command-derived: no name:
-json.dump({"name": "p"}, open(os.path.join(staged, ".claude-plugin", "plugin.json"), "w"))
+json.dump({"name": "p"}, open(os.path.join(staged, ".claude-plugin", "plugin.json"), "w", encoding="utf-8"))
 
 notes = m.postprocess_staged(os.path.join(tmp, "stage"), {"p": src}, m.Plan())
 
-mcp = json.load(open(os.path.join(staged, "mcp_config.json")))["mcpServers"]
+mcp = json.load(open(os.path.join(staged, "mcp_config.json"), encoding="utf-8"))["mcpServers"]
 assert mcp["rem"] == {"serverUrl": "https://ex.test/mcp"}, mcp   # URL recovered
 assert mcp["loc"]["command"] == "echo" and "cwd" not in mcp["loc"], mcp  # blanks dropped
 
-h = json.load(open(os.path.join(staged, "hooks.json")))
+h = json.load(open(os.path.join(staged, "hooks.json"), encoding="utf-8"))
 assert list(h) == ["p-hooks"], h                                  # named-hook map
 assert h["p-hooks"]["PreToolUse"][0]["matcher"] == "run_command", h
 cmd = h["p-hooks"]["PreToolUse"][0]["hooks"][0]["command"]
@@ -546,7 +546,7 @@ assert not os.path.exists(os.path.join(staged, "hooks", "hooks.json"))
 for junk in (".claude-plugin", "commands", ".mcp.json"):
     assert not os.path.exists(os.path.join(staged, junk)), junk
 
-fm = open(os.path.join(staged, "skills", "p-cmd-x", "SKILL.md")).read()
+fm = open(os.path.join(staged, "skills", "p-cmd-x", "SKILL.md"), encoding="utf-8").read()
 assert fm.startswith("---\nname: p-cmd-x\n"), fm                  # name: restored
 assert any("restored remote MCP" in n for n in notes), notes
 PY

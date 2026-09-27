@@ -84,7 +84,7 @@ def problems(path):
     spread over two of them ("Add --sandbox for isolation. It contains the commands."),
     which is what review found here. Running both costs one extra pass.
     """
-    sents = sentences(open(path).read())
+    sents = sentences(open(path, encoding="utf-8").read())
     bad, seen = [], set()
 
     def add(line_no, text):
