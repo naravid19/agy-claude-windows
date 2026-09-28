@@ -17,7 +17,7 @@ Do this:
 2. **Delegate** (the engine handles format pre-flight, the digest contract, and writes the
    full transcript to a file):
    ```
-   agy-media <file> [focus] [--convert] [--tier pro|flash] [--timeout 20m] [--out <path>]
+   "${CLAUDE_PLUGIN_ROOT}/bin/agy-media" <file> [focus] [--convert] [--tier pro|flash] [--timeout 20m] [--out <path>]
    ```
    - Default tier is `pro` (better timestamps/diarization); `--tier flash` is fine for
      short/simple clips.

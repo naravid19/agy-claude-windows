@@ -42,7 +42,7 @@ set -uo pipefail
 
 input="$(cat)"
 
-BLOCK_MSG="[antigravity-delegate] blocked: this subagent may only run agy-delegate / agy-job, as a BARE name with no path and no pipeline. No other commands, pipes, chaining, redirection, substitution, comments, or unquoted newlines. To give agy a repository, pass --dir <repo-root> rather than piping content in. Delegate file work to agy; verification is the caller's job."
+BLOCK_MSG="[antigravity-delegate] blocked: this subagent may only run the plugin's delegation wrapper (agy-delegate / agy-job). No other commands, pipes, chaining, redirection, substitution, comments, or unquoted newlines. To give agy a repository, pass --dir <repo-root> rather than piping content in. Delegate file work to agy; verification is the caller's job."
 
 # Python gives a correct, quote-aware parse. Fail CLOSED if none works.
 . "$(dirname "$0")/../scripts/find-python.sh"
@@ -51,8 +51,11 @@ if ! find_python; then
   exit 2
 fi
 
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+export CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT"
+
 if AGY_GATE_INPUT="$input" "${PY[@]}" - <<'PY'
-import json, os, shlex, sys
+import json, os, re, shlex, sys
 
 raw = os.environ.get("AGY_GATE_INPUT", "")
 try:
@@ -70,6 +73,7 @@ if not isinstance(cmd, str) or not cmd.strip():
 cmd = cmd.strip()
 
 WRAPPERS = {"agy-delegate", "agy-job"}
+plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT", "")
 
 # Say WHY, on stderr, so the caller can self-correct (issue #51). Claude Code feeds
 # PreToolUse stderr back to the agent, which is the same path BLOCK_MSG already takes.
@@ -87,22 +91,31 @@ CHAR_NAMES = {";": "';' (command separator)", "&": "'&' (background / chaining)"
               "(": "'(' (subshell)",          ")": "')' (subshell)",
               "#": "'#' (comment)"}
 
-# A bare NAME, never a path. This used to be os.path.basename(), which accepted any
-# directory: `./agy-delegate` in a cloned repository passed the gate and ran THAT file.
-# Untrusted repository content is the exact prompt-injection source SECURITY.md names,
-# so the one control it names was defeated by the checkout it was meant to survive.
-#
-# Nothing needs a path. agents/, commands/ and skills/ have invoked these by bare name
-# since 0.14.0 — the plugin puts bin/ on the Bash tool PATH because $CLAUDE_PLUGIN_ROOT
-# is not exported to model-run Bash (issue #11). A bare name resolves through PATH,
-# which the working directory is not on; a path resolves through the working directory,
-# which an attacker controls.
-#
-# Returns None for anything path-shaped, which every caller treats as "not allowed".
-def base(tok):
-    if "/" in tok or "\\" in tok:     # backslash too: Git Bash / MSYS accept `.\name`
-        return None
-    return tok[:-3] if tok.endswith(".sh") else tok
+def norm(p):
+    if not p:
+        return ""
+    if os.name == "nt" and len(p) >= 3 and p[0] == "/" and p[2] == "/" and p[1].isalpha():
+        p = p[1] + ":" + p[2:]
+    return os.path.normcase(os.path.abspath(p))
+
+def is_valid_wrapper(tok):
+    # 1. Bare name, no path
+    if "/" not in tok and "\\" not in tok:
+        b = tok[:-3] if tok.endswith(".sh") else tok
+        return b in WRAPPERS
+    # 2. Path: must be an absolute path pointing to <plugin_root>/bin/<wrapper>
+    if not plugin_root:
+        return False
+    expanded = os.path.expandvars(tok)
+    if not (os.path.isabs(expanded) or (os.name == "nt" and len(expanded) >= 3 and expanded[0] == "/" and expanded[2] == "/" and expanded[1].isalpha())):
+        return False
+    norm_tok = norm(expanded)
+    parent_dir, filename = os.path.split(norm_tok)
+    b = filename[:-3] if filename.endswith(".sh") else filename
+    if b not in WRAPPERS:
+        return False
+    expected_bin_dir = norm(os.path.join(plugin_root, "bin"))
+    return parent_dir == expected_bin_dir
 
 # Quote-aware scan: split into pipeline segments on UNQUOTED '|', and flag any
 # unquoted metacharacter bash would act on (plus command substitution inside "").
@@ -180,7 +193,7 @@ if len(segs) != 1:
 t = head(segs[0])
 if not t:
     deny("the command could not be tokenised")
-if base(t) not in WRAPPERS:
+if not is_valid_wrapper(t):
     deny("the first command is not agy-delegate or agy-job")
 sys.exit(0)
 PY

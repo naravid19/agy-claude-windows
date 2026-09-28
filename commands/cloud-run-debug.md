@@ -34,7 +34,7 @@ Do this:
    engine, which pulls `severity>=ERROR` logs via `gcloud logging read` and hands them to agy for
    a structured digest (error clusters / representative stack traces / time distribution / likely
    root-cause candidates):
-   `cloud-debug --service <name> [--region <r>] [--project <id>] [--since <dur>] [--limit <n>]`
+   `"${CLAUDE_PLUGIN_ROOT}/bin/cloud-debug" --service <name> [--region <r>] [--project <id>] [--since <dur>] [--limit <n>]`
    - **Ingest only the digest** it prints — do **not** re-fetch or paste the raw logs into your
      context (that lean handoff is where the cost saving comes from).
    - If it exits **3** (permission denied), relay the `roles/logging.viewer` guidance it printed

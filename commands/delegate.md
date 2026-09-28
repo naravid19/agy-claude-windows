@@ -32,7 +32,7 @@ Do this:
    fix: a `permissions.allow` rule covering the target, or `--yolo`. Since agy 1.1.27 the
    wrapper names the refused tool from the envelope's `denied_actions`.)
 2. Run **synchronously** (you may be headless — do not background-and-wait):
-   `agy-delegate --tier <tier> [--dir .] [--yolo] [--digest] "<task>"`
+   `"${CLAUDE_PLUGIN_ROOT}/bin/agy-delegate" --tier <tier> [--dir .] [--yolo] [--digest] "<task>"`
    For read/analysis tasks, add `--digest` — it appends a digest-only output contract so
    agy returns compact bullets instead of raw content.
 3. Ingest only the **result/digest** — do NOT re-read the files agy already handled
@@ -48,7 +48,7 @@ spec + round-trip + verification overhead. Tiny tasks are cheaper to just do you
 **Long task, interactive session?** A sync delegation can also hit Claude Code's ~2-min
 Bash-tool limit — start it in the background and keep working (this also keeps the prompt
 cache warm and frees you to do other turns):
-`ID=$(agy-job start --tier pro --dir . "<task>")`
+`ID=$("${CLAUDE_PLUGIN_ROOT}/bin/agy-job" start --tier pro --dir . "<task>")`
 then check `/antigravity:status` and collect with `/antigravity:result <id>`.
 (Don't do this when YOU are headless `claude -p` — one-shot, no later turn to collect;
 delegate synchronously there.)

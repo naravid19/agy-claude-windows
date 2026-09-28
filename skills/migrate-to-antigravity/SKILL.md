@@ -6,8 +6,8 @@ version: 0.23.0
 
 # Migrating Claude Code → Antigravity CLI
 
-Run `agy-migrate` (dry-run) → read the report → `agy-migrate --apply`.
-`agy-migrate --uninstall --apply` reverses everything.
+Run `"${CLAUDE_PLUGIN_ROOT}/bin/agy-migrate"` (dry-run) → read the report → `"${CLAUDE_PLUGIN_ROOT}/bin/agy-migrate" --apply`.
+`"${CLAUDE_PLUGIN_ROOT}/bin/agy-migrate" --uninstall --apply` reverses everything.
 
 The tool treats the Claude Code config dir as **read-only**. The single exception is
 an `AGENTS.md` symlink placed beside an existing `CLAUDE.md`, and only under

@@ -812,6 +812,21 @@ check "gate allows bin name agy-delegate -> exit 0" 0 "$rc"
 printf '%s' '{"tool_input":{"command":"agy-job status abc"}}' | "$GATE" >/dev/null 2>&1; rc=$?
 check "gate allows bin name agy-job -> exit 0" 0 "$rc"
 
+# issue 04: gate accepts quoted full paths pointing into plugin's own bin/
+rc="$(gate_path_rc "\"$ROOT/bin/agy-delegate\" --tier flash \"x\"")"
+check "gate allows quoted full path into root bin/ -> exit 0" 0 "$rc"
+rc="$(gate_path_rc "\"$ROOT/bin/agy-job\" status abc")"
+check "gate allows quoted full path agy-job -> exit 0" 0 "$rc"
+rc="$(gate_path_rc '"/tmp/bin/agy-delegate" "x"')"
+check "gate blocks full path outside plugin root -> exit 2" 2 "$rc"
+rc="$(gate_path_rc "\"$ROOT/bin/agy-delegate\" x; foo")"
+check "gate blocks ; chaining after full path wrapper -> exit 2" 2 "$rc"
+rc="$(gate_path_rc "\"$ROOT/bin/agy-delegate\" x && foo")"
+check "gate blocks && chaining after full path wrapper -> exit 2" 2 "$rc"
+_nl_cmd=$(printf '"%s/bin/agy-delegate" x\nfoo' "$ROOT")
+rc="$(gate_path_rc "$_nl_cmd")"
+check "gate blocks newline chaining after full path wrapper -> exit 2" 2 "$rc"
+
 # issue #29: token-based gate — substring-anywhere bypasses must be BLOCKED (benign payloads)
 printf '%s' '{"tool_input":{"command":"foo # agy-delegate"}}' | "$GATE" >/dev/null 2>&1; rc=$?
 check "gate blocks comment-appended wrapper name -> exit 2" 2 "$rc"
@@ -1272,6 +1287,26 @@ oe_case encoding   0 "x = $oe_open(p, \"w\", encoding=\"utf-8\")"
 oe_case binary     0 "x = $oe_open(p, \"rb\")"
 oe_case method     0 "t = tarfile.$oe_open(p)"
 oe_case prose      0 "# a bare $oe_open() uses the locale"
+
+echo "== markdown instructions invoke bin/ via \${CLAUDE_PLUGIN_ROOT}/bin/ =="
+# Claude Code documents plugin bin/ as on PATH, but on Windows no plugin bin/ reaches PATH.
+# Markdown instructions in commands/, skills/, agents/ must invoke tools via "${CLAUDE_PLUGIN_ROOT}/bin/<tool>".
+if python3 "$HERE/check-bin-invocation.py" "$ROOT"/commands/*.md "$ROOT"/skills/*/*.md "$ROOT"/agents/*.md; then
+  echo "ok: no bare bin/ tool invocations in commands, skills, or agents"; PASS=$((PASS+1));
+else echo "FAIL: found bare bin/ tool invocation (see above)"; FAIL=$((FAIL+1)); fi
+bi_case() { # $1 = label, $2 = expected rc, $3 = file body
+  local f="$TMP/bi-$1.md"; printf '%s\n' "$3" > "$f"
+  python3 "$HERE/check-bin-invocation.py" "$f" >/dev/null 2>&1; local rc=$?
+  if [ "$rc" = "$2" ]; then echo "ok: bin-invocation checker — $1"; PASS=$((PASS+1));
+  else echo "FAIL: bin-invocation checker — $1 (rc=$rc, want $2)"; FAIL=$((FAIL+1)); fi
+}
+bi_case bare-sh-block         1 "$(printf '```bash\nagy-delegate --tier flash "x"\n```')"
+bi_case qualified-sh-block    0 "$(printf '```bash\n"${CLAUDE_PLUGIN_ROOT}/bin/agy-delegate" --tier flash "x"\n```')"
+bi_case bare-inline-backtick  1 'Run `agy-doctor` before proceeding'
+bi_case qualified-backtick    0 'Run `"${CLAUDE_PLUGIN_ROOT}/bin/agy-doctor"` before proceeding'
+bi_case bare-run-prefix       1 'Run: agy-job status'
+bi_case qualified-run-prefix  0 'Run: "${CLAUDE_PLUGIN_ROOT}/bin/agy-job" status'
+bi_case prose-mention         0 'agy-delegate is the wrapper for delegation'
 
 echo "== a CHANGELOG entry cannot land in a section that already shipped =="
 # #77 filed under the released 0.27.0; #82 did it again, branching before #81 opened

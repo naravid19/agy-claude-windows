@@ -12,7 +12,7 @@ Do this:
 1. Capture the diff: `git diff` (or the range/paths in the scope above; default to
    uncommitted + last commit if unspecified).
 2. Delegate the review to agy (pro tier) — pipe the diff in on stdin:
-   `git diff | agy-delegate --tier pro -`
+   `git diff | "${CLAUDE_PLUGIN_ROOT}/bin/agy-delegate" --tier pro -`
    (This runs as YOU, the conductor. The `antigravity-delegate` subagent cannot pipe —
    its PreToolUse gate refuses every pipeline since GHSA-hwv2-vjgj-8rcv, because `git`
    with arbitrary arguments executes arbitrary commands and `cat` feeding the wrapper

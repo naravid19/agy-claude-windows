@@ -5,7 +5,7 @@ argument-hint: "<job-id>"
 
 Fetch and act on a background agy job's result.
 
-Run: `agy-job result $ARGUMENTS`
+Run: `"${CLAUDE_PLUGIN_ROOT}/bin/agy-job" result $ARGUMENTS`
 
 - If it reports "still running", tell the user and stop.
 - If finished: treat the output as a delegated result under the `antigravity` skill's

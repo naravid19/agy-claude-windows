@@ -54,12 +54,12 @@ claim success** — verification is the caller's (Claude's) job.
 ## Core rule — everything goes through the wrapper
 
 You have **no `Write` and no `Edit`**, and a `PreToolUse` gate **blocks every Bash
-command except the delegation wrapper** (`agy-delegate` / `agy-job`). So all
+command except the delegation wrapper** (`"${CLAUDE_PLUGIN_ROOT}/bin/agy-delegate"` / `"${CLAUDE_PLUGIN_ROOT}/bin/agy-job"`). So all
 file creation/editing and bulky work must be performed by agy, not by you — you
 cannot write files even via the shell. Never reconstruct file contents in your reply.
 
 ```bash
-agy-delegate [options] "<task>"
+"${CLAUDE_PLUGIN_ROOT}/bin/agy-delegate" [options] "<task>"
 ```
 
 Options: `--tier flash|flash-lo|pro` · `--dir <repo-root>` (so agy reads
@@ -91,7 +91,7 @@ not over `--dir`) · `--sandbox` (does NOT contain anything; measured inert unde
   — that grants the write recursively beneath `<dir>` with no flag, and is narrower than
   `--yolo`, which approves every tool. If they say a rule is in place and the write is
   still denied (soft on older agy, a hard error by 1.1.13, soft again from 1.1.20 and named in `denied_actions` since 1.1.27 — the wrapper reports exit 15
-  for both), have them run `agy-doctor` before anything else: an entry agy cannot
+  for both), have them run "${CLAUDE_PLUGIN_ROOT}/bin/agy-doctor" before anything else: an entry agy cannot
   parse grants nothing. (The "granted everything before 1.1.11" history belongs to a
   `command(...)` rule naming no command, not to a mistyped `write_file()`.) You cannot see that file, so `--yolo` stays the
   default; if a run comes back exit `15`, the allow-rule is the smaller fix. Either way tell

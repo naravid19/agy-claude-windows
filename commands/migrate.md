@@ -7,7 +7,7 @@ Migrate this machine's Claude Code configuration to Antigravity (`agy`).
 
 Run the tool in **dry-run first, always**:
 
-`agy-migrate $ARGUMENTS`
+`"${CLAUDE_PLUGIN_ROOT}/bin/agy-migrate" $ARGUMENTS`
 
 Then read the report back to the user, grouped by unit, and explain:
 
@@ -22,7 +22,7 @@ Then read the report back to the user, grouped by unit, and explain:
 
 Only run with `--apply` after the user has seen the dry-run and agreed. Then tell them:
 
-- the backup path the tool printed, and that `agy-migrate --uninstall --apply` reverses it;
+- the backup path the tool printed, and that `"${CLAUDE_PLUGIN_ROOT}/bin/agy-migrate" --uninstall --apply` reverses it;
 - that session history (`~/.claude/projects/*.jsonl`) is **not** migrated and cannot be —
   Antigravity stores conversations as protobuf blobs inside per-conversation SQLite files;
 - that workspace rules under `.agents/` only load when the session is bound to an agy

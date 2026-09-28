@@ -4,7 +4,7 @@ description: Verify the Antigravity (agy) CLI is installed and authenticated and
 
 Run the plugin's doctor and report status.
 
-Run: `agy-doctor`
+Run: `"${CLAUDE_PLUGIN_ROOT}/bin/agy-doctor"`
 
 Then summarize for the user:
 - Is `agy` installed, and can it list models (i.e. authenticated)?

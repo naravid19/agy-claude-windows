@@ -103,7 +103,7 @@ the cross-model verification value (Claude executing Claude loses both).
 ## How to call it
 
 ```bash
-agy-delegate [options] "the task prompt"
+"${CLAUDE_PLUGIN_ROOT}/bin/agy-delegate" [options] "the task prompt"
 ```
 Options: `--tier flash|flash-lo|pro` · `--dir <path>` (workspace, repeatable) ·
 `--timeout 10m` · `--yolo` (auto-approve **ALL** tools — the blunt grant; needed for web search /
@@ -140,7 +140,7 @@ force it with the `structured_output` option.
 >
 > **If you are measuring, set `AGY_USAGE_LOG=/path/to/log`** (or the `usage_log` option).
 > `AGY_USAGE` and `AGY_SIGNAL` go to stderr, and the advice two paragraphs down — keep
-> Claude's context lean — makes `agy-delegate ... 2>&1 | tail -N` the natural thing to
+> Claude's context lean — makes `"${CLAUDE_PLUGIN_ROOT}/bin/agy-delegate" ... 2>&1 | tail -N` the natural thing to
 > write. stdout (the digest) is emitted *after* the usage line, so `tail` keeps the digest
 > and silently drops the usage. Measured in the wild: a benchmark harness lost most of its
 > Gemini-side data exactly this way, which made the hybrid look cheaper than it was. A
@@ -160,7 +160,7 @@ since 1.1.27 the wrapper names the refused tool from the envelope's `denied_acti
 (besides `2` failed / `3` empty). On agy ≥ 1.1.8 these are derived from the structured
 `status`/`error` envelope rather than stderr pattern-matching, so the classification is
 reliable. It prints a `AGY_SIGNAL {...}` line on stderr;
-`agy-job status`/`result` surface it, so you can react (e.g. retry quota with `--continue`,
+`"${CLAUDE_PLUGIN_ROOT}/bin/agy-job" status`/`result` surface it, so you can react (e.g. retry quota with `--continue`,
 fix the model name, or add `--yolo`) instead of scraping prose.
 
 **If Claude itself is running headless (`claude -p`, one-shot):** run delegations
@@ -201,9 +201,9 @@ Claude owns correctness. For anything that ships:
    `~/.gemini/antigravity-cli/brain/<conversationId>/` — for plain delegations too, not
    just internal-fan-out subagents. `agy-delegate` prints the `conversationId` in its
    `AGY_USAGE` line, so cost and trajectory join 1:1. Audit with
-   **`agy-trace --audit <conversationId>`** (or `--audit --last`): step-type counts plus
+   **`"${CLAUDE_PLUGIN_ROOT}/bin/agy-trace" --audit <conversationId>`** (or `--audit --last`): step-type counts plus
    every non-zero exit. A delegation can report SUCCESS while commands inside it failed —
-   measured: 6 failed commands inside one overall-"SUCCESS" run. `agy-trace <id>` prints
+   measured: 6 failed commands inside one overall-"SUCCESS" run. `"${CLAUDE_PLUGIN_ROOT}/bin/agy-trace" <id>` prints
    the full steps; `--list` finds recent ones.
    **What is NOT recorded: the command strings.** Not in `transcript.jsonl`, not in
    `transcript_full.jsonl`, not in `~/.gemini/antigravity-cli/log/cli-*.log`. You get
@@ -242,11 +242,11 @@ commands** (`--yolo` grants write + terminal):
   on any version — exit 15 with the rule visibly present in the file. Separately, and only
   for `command(...)`, an entry naming no command (`command(time)`, comment-only, `()`)
   matched EVERY command before 1.1.11; do not attach that history to a mistyped
-  `write_file()`. If a user reports a rule that "should" work, have them run `agy-doctor`
+  `write_file()`. If a user reports a rule that "should" work, have them run "${CLAUDE_PLUGIN_ROOT}/bin/agy-doctor"
   before changing anything else.
   Run write tasks on a branch and verify with `git status`.
   prompt for or block `--dangerously-skip-permissions` — approve it or pre-allow
-  `Bash(agy-delegate*)`. Always verify files actually changed **in the workspace** with
+  `Bash(*agy-delegate*)`. Always verify files actually changed **in the workspace** with
   `git status` (the wrapper maps BOTH denial shapes — the soft deny, 1.1.3+ and again from
   1.1.20, and 1.1.13's hard error — to exit `15`, so you're not left guessing).
 - Run it on a **dedicated git branch or worktree** so changes are isolated.
@@ -351,7 +351,7 @@ any figure.
 ## SDLC recipes
 
 ```bash
-ROOT=agy-delegate
+ROOT="${CLAUDE_PLUGIN_ROOT}/bin/agy-delegate"
 
 # Scaffold from a spec (Claude wrote the spec/architecture)
 "$ROOT" --tier pro --yolo --dir ./app \
@@ -378,9 +378,9 @@ ROOT=agy-delegate
 # Audio / video / image understanding (Claude can't hear or watch; Gemini can)
 # agy-media writes the full transcript to a FILE and returns a timestamped digest —
 # never ingest a whole transcript (a 1-hour recording is ~10k words of cache_read).
-agy-media ./meeting.wav "decisions and owners"     # digest -> you; transcript -> ./meeting.transcript.md
-agy-media ./demo.mp4 --timeout 20m                 # video: adds timestamped VISUALS/OCR
-agy-media ./memo.m4a --convert                     # agy mishandles m4a/aiff; converts to wav first
+"${CLAUDE_PLUGIN_ROOT}/bin/agy-media" ./meeting.wav "decisions and owners"     # digest -> you; transcript -> ./meeting.transcript.md
+"${CLAUDE_PLUGIN_ROOT}/bin/agy-media" ./demo.mp4 --timeout 20m                 # video: adds timestamped VISUALS/OCR
+"${CLAUDE_PLUGIN_ROOT}/bin/agy-media" ./memo.m4a --convert                     # agy mishandles m4a/aiff; converts to wav first
 # Verify before relying on it: the digest flags unclear audio + uncertain names/numbers —
 # grep that timestamp out of the transcript file rather than trusting the summary.
 
@@ -418,7 +418,7 @@ cheap side, and you ingest a single digest.
 # Preferred form (agy >= 1.0.16). --yolo (the wrapper's flag; it reaches agy as
 # --dangerously-skip-permissions) is required so the subagent tools aren't
 # soft-denied headless (see below). Verified live on agy 1.1.5.
-agy-delegate --dir . --yolo --digest --timeout 10m \
+"${CLAUDE_PLUGIN_ROOT}/bin/agy-delegate" --dir . --yolo --digest --timeout 10m \
   "ACTUALLY use your define_subagent and invoke_subagent tools (do NOT simulate).
    Decompose <task> into up to 3 units. For each unit: define_subagent a named specialist
    (name + system_prompt for its role, following this repo's conventions / AGENTS.md if
@@ -439,7 +439,7 @@ Verified behaviors (1.0.12 → 1.1.5):
   `transcript.jsonl`** under `~/.gemini/antigravity-cli/brain/<conversationId>/` —
   *better* trajectory visibility than a plain delegation. Location unchanged across
   1.0.12→1.1.5, for both `define_subagent` and `self` spawns. Have the parent report
-  each `conversationId`, then audit with `agy-trace <id>` (`agy-trace --list` finds
+  each `conversationId`, then audit with `"${CLAUDE_PLUGIN_ROOT}/bin/agy-trace" <id>` (`"${CLAUDE_PLUGIN_ROOT}/bin/agy-trace" --list` finds
   recent ones). Note: the parent may also create a coordination thread of its own, so
   `--list` can show one more conversation than the units you asked for.
 - Spawns are real and observable (new conversation threads appear) — but still run the
@@ -510,7 +510,7 @@ Routing deterministic, high-volume work to Gemini Flash (≪ Claude per token) i
 **intelligent model routing**: higher CapEx (this harness) for lower OpEx (cheap model
 does the bulk). Use the cost demo as observability:
 ```bash
-agy-cost-compare --tier flash "the task prompt"
+"${CLAUDE_PLUGIN_ROOT}/bin/agy-cost-compare" --tier flash "the task prompt"
 ```
 Estimates only (chars/4; agy exposes no token API in print mode). Set real Vertex rates
 via `CLAUDE_IN_PER_M`, `CLAUDE_OUT_PER_M`, `GEMINI_IN_PER_M`, `GEMINI_OUT_PER_M`.

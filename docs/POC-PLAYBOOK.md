@@ -105,7 +105,7 @@ After each lever: rerun the task → rerun the gate → keep only if quality hel
   - **`permissions.allow` in `~/.gemini/antigravity-cli/settings.json`** — a
     `write_file(<dir>)` entry allows writes **recursively beneath `<dir>`** and needs no
     flag. This is the narrower grant and usually the right one.
-    **`<dir>` is a placeholder — substitute a real path**, and run `agy-doctor` before a
+    **`<dir>` is a placeholder — substitute a real path**, and run "${CLAUDE_PLUGIN_ROOT}/bin/agy-doctor" before a
     measured run. Left as written the rule grants nothing on any version, so the write is
     denied with the rule sitting visibly in the file. A separate mistake — a
     `command(...)` rule naming no command — matched **every** command before **agy

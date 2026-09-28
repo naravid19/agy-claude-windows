@@ -6,9 +6,9 @@ argument-hint: "[job-id]"
 Show background agy delegation jobs.
 
 - If a job id is given in `$ARGUMENTS`, run:
-  `agy-job status $ARGUMENTS`
+  `"${CLAUDE_PLUGIN_ROOT}/bin/agy-job" status $ARGUMENTS`
 - Otherwise list jobs started from this directory:
-  `agy-job list`
+  `"${CLAUDE_PLUGIN_ROOT}/bin/agy-job" list`
 
 Report each job's id, state (running / done / failed), and task. For finished jobs,
 remind the user they can fetch output with `/antigravity:result <id>`.
