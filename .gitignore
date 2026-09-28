@@ -2,3 +2,9 @@
 *.pyc
 __pycache__/
 /tmp/agy-delegate.err
+/docs/agents
+AGENTS.md
+/docs/research
+CONTEXT.md
+/docs/adr
+/.scratch
