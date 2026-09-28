@@ -21,10 +21,25 @@ ok()   { echo "ok: $*";   PASS=$((PASS+1)); }
 bad()  { echo "FAIL: $*"; FAIL=$((FAIL+1)); }
 has()  { case "$2" in *"$1"*) return 0 ;; *) return 1 ;; esac; }
 
+# The suite's own `python3` calls need a real Python 3. On Windows `python3` is often the
+# Microsoft Store alias stub, so when the plugin's resolver picks something else, a
+# `python3` shim first on PATH points at it. With a working python3 nothing changes.
+# shellcheck source=../scripts/find-python.sh
+. "$ROOT/scripts/find-python.sh"
+find_python || { echo "FAIL: the suite needs a working Python 3 ($PY_CANDIDATES)"; exit 1; }
+REAL_PY="$("${PY[@]}" -c 'import sys; print(sys.executable)')"
+command -v cygpath >/dev/null 2>&1 && REAL_PY="$(cygpath -u "$REAL_PY")"
+py_shim() { printf '#!/bin/sh\nexec %q "$@"\n' "$REAL_PY" > "$1"; chmod +x "$1"; }
+mkdir -p "$TMP/py"; export PATH="$TMP/py:$PATH"
+[ "${PY[*]}" = python3 ] || py_shim "$TMP/py/python3"
+
 # --- synthetic HOME ----------------------------------------------------------
 # Mirrors the layout Claude Code 2.1.x actually produces: memory under
 # projects/<encoded-cwd>/memory, plugins nested under plugins/cache/<mp>/<p>/<v>.
-H="$TMP/home"; export HOME="$H"
+H="$TMP/home"
+command -v cygpath >/dev/null 2>&1 && H="$(cygpath -m "$H")"
+export HOME="$H"
+export USERPROFILE="$H"
 # The app-data and package-cache exclusions read these; point them at the synthetic
 # HOME so a real ~/AppData or an exported PUB_CACHE on the developer's machine cannot
 # leak in.
@@ -112,8 +127,9 @@ SKJ="$H/.gemini/config/skills.json"
 if [ -f "$SKJ" ] && python3 -c "
 import json,sys,os
 e=json.load(open('$SKJ', encoding='utf-8'))['entries']
-p=[x['path'] for x in e]
-sys.exit(0 if os.path.join('$H','.claude','skills') in p and not any(x.startswith('~') for x in p) else 1)"; then
+p=[os.path.normpath(x['path']) for x in e]
+target=os.path.normpath(os.path.join('$H','.claude','skills'))
+sys.exit(0 if target in p and not any(x.startswith('~') for x in p) else 1)"; then
   ok "skills.json registers an ABSOLUTE path (~ is not expanded by agy)"
 else bad "skills.json entry wrong"; fi
 
@@ -150,7 +166,10 @@ sys.exit(0 if ok else 1)"; then
   ok "repo registered as an agy project (else .agents/ never loads)"
 else bad "repo not registered"; fi
 
-if [ -L "$REPO/AGENTS.md" ]; then ok "AGENTS.md symlinked to CLAUDE.md"
+if [ -L "$REPO/AGENTS.md" ]; then
+  ok "AGENTS.md symlinked to CLAUDE.md"
+elif [ "${OSTYPE:-}" = "msys" ] && ! python3 -c 'import os,tempfile; d=tempfile.mkdtemp(); f=os.path.join(d,"a"); open(f,"w",encoding="utf-8").write("x"); os.symlink(f,os.path.join(d,"b"))' 2>/dev/null; then
+  ok "AGENTS.md symlink skipped (symlinks require Developer Mode on Windows)"
 else bad "no AGENTS.md symlink"; fi
 
 # Registration alone does not activate .agents/ in print mode — agy -p always uses
@@ -326,7 +345,7 @@ if [ ! -L "$PUBPKG/AGENTS.md" ] && [ ! -e "$UVPKG/AGENTS.md" ] && [ ! -e "$GOPKG
    && [ ! -e "$REPO/node_modules/vendored-dep/AGENTS.md" ]; then
   ok "nothing written inside a package cache, not even beside a conflict"
 else bad "wrote into a package cache"; fi
-if has "not-a-repo" "$OUT" && has "$H/notes" "$OUT" && [ ! -e "$H/notes/AGENTS.md" ]; then
+if has "not-a-repo" "$OUT" && { has "$H/notes" "$OUT" || has "${H//\//\\}\\notes" "$OUT"; } && [ ! -e "$H/notes/AGENTS.md" ]; then
   ok "a CLAUDE.md outside any repo is reported as skipped, not symlinked"
 else bad "non-repo CLAUDE.md silently dropped, or symlinked anyway"; fi
 rm -rf "$H/AppData" "$H/go" "$H/notes" "$REPO/node_modules"
@@ -394,7 +413,11 @@ rm -rf "$H/.claude/.git" "$H/.claude/CLAUDE.md"
 # otherwise still find it.
 NOGIT="$TMP/nogit"; mkdir -p "$NOGIT"
 for u in python3 bash sh env sed cat mktemp grep find sort head tail rm chmod ln; do
-  s="$(command -v "$u" 2>/dev/null)" && ln -sf "$s" "$NOGIT/$u"
+  s="$(type -P "$u" 2>/dev/null || command -v "$u" 2>/dev/null)"
+  if [ -n "$s" ] && [ -e "$s" ]; then
+    printf '#!/bin/sh\nexec %q "$@"\n' "$s" > "$NOGIT/$u"
+    chmod +x "$NOGIT/$u"
+  fi
 done
 OUT="$(PATH="$NOGIT" run --roots "$H" --only claudemd,memory --include-repos)"; rc=$?
 if [ "$rc" = 18 ] && has "git" "$OUT" && has "--include-repos" "$OUT"; then
@@ -429,9 +452,11 @@ else bad "git_root() swallowed a missing git binary"; fi
 # --- a lossy-encoding collision must not misfile memory ----------------------
 # `a_b` and `a/b` both encode to `a-b`. Guessing would write one repo's memory into
 # the other's .agents/rules/, so the tool must decline to resolve it.
-python3 - "$H" <<'PY2'
-import json, os, sys
+python3 - "$H" "$MIG" <<'PY2'
+import json, os, sys, importlib.util
 h = sys.argv[1]
+spec = importlib.util.spec_from_file_location("m", sys.argv[2])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
 p = os.path.join(h, ".claude.json")
 d = json.load(open(p, encoding="utf-8"))
 for x in (os.path.join(h, "coll_x"), os.path.join(h, "coll", "x")):
@@ -439,7 +464,7 @@ for x in (os.path.join(h, "coll_x"), os.path.join(h, "coll", "x")):
     d["projects"][x] = {"hasTrustDialogAccepted": False}
 json.dump(d, open(p, "w", encoding="utf-8"))
 enc = os.path.join(h, ".claude", "projects",
-                   __import__("re").sub(r"[/_.]", "-", os.path.join(h, "coll_x")), "memory")
+                   m.encode_project_dir(os.path.join(h, "coll_x")), "memory")
 os.makedirs(enc, exist_ok=True)
 open(os.path.join(enc, "amb.md"), "w", encoding="utf-8").write("---\nname: amb\n---\nbody\n")
 PY2

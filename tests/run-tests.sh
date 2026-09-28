@@ -206,7 +206,11 @@ export PATH="$TMP/bin:$PATH"
 # /usr/bin (GitHub-hosted ubuntu does — so PATH=/usr/bin:/bin would still find it).
 mkdir -p "$TMP/min"
 for u in bash sh env dirname basename pwd sed cat mktemp grep tr cut find wc head tail sort uniq sleep python3 rm chmod; do
-  s="$(command -v "$u" 2>/dev/null)" && ln -sf "$s" "$TMP/min/$u"
+  s="$(type -P "$u" 2>/dev/null || command -v "$u" 2>/dev/null)"
+  if [ -n "$s" ] && [ -e "$s" ]; then
+    printf '#!/bin/sh\nexec %q "$@"\n' "$s" > "$TMP/min/$u"
+    chmod +x "$TMP/min/$u"
+  fi
 done
 
 check() { # desc  expected_rc  actual_rc  [substr]  [actual_out]

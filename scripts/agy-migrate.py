@@ -126,7 +126,7 @@ if not sys.stdout.isatty() or os.environ.get("NO_COLOR"):
 # --- paths -------------------------------------------------------------------
 
 def home():
-    return os.path.expanduser("~")
+    return os.environ.get("HOME") or os.path.expanduser("~")
 
 
 def claude_dir():
@@ -752,7 +752,7 @@ def unit_memory(plan, mf, include_orphans, include_repos, register_projects):
                 out = os.path.join(dest, name)
                 if not generated(out):
                     continue          # user-authored: leave it alone
-                with open(out, "w", encoding="utf-8") as f:
+                with open(out, "w", encoding="utf-8", newline="\n") as f:
                     f.write(content)
                 mf.files.append(out)
 

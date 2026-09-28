@@ -1,0 +1,4 @@
+# Pin shell and Python files to LF line endings to prevent CRLF injection on Windows
+*.sh text eol=lf
+*.py text eol=lf
+bin/* text eol=lf

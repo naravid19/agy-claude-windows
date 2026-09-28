@@ -78,3 +78,26 @@ jobs:
             *) echo "::error::expected /bin/bash 3.2.x first on PATH, got: $v" >&2; exit 1 ;;
           esac
           bash tests/run-tests.sh
+
+  # Windows port: runs the offline suite under Git Bash on windows-latest.
+  # Shell and Python sources are pinned to LF via .gitattributes so CRLF checkout
+  # cannot break shebangs or assertions.
+  test-windows:
+    name: Tests (Windows, Git Bash)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Enable Developer Mode (symlinks)
+        run: reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock" /t REG_DWORD /f /v "AllowDevelopmentWithoutDevLicense" /d "1"
+        shell: cmd
+
+      - name: Tests (stubs agy; no network)
+        run: bash tests/run-tests.sh
+
