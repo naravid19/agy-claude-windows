@@ -55,7 +55,7 @@ PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 export CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT"
 
 if AGY_GATE_INPUT="$input" "${PY[@]}" - <<'PY'
-import json, os, re, shlex, sys
+import json, os, shlex, sys
 
 raw = os.environ.get("AGY_GATE_INPUT", "")
 try:
@@ -98,24 +98,21 @@ def norm(p):
         p = p[1] + ":" + p[2:]
     return os.path.normcase(os.path.abspath(p))
 
+def strip_sh(name):
+    return name[:-3] if name.endswith(".sh") else name
+
 def is_valid_wrapper(tok):
     # 1. Bare name, no path
     if "/" not in tok and "\\" not in tok:
-        b = tok[:-3] if tok.endswith(".sh") else tok
-        return b in WRAPPERS
+        return strip_sh(tok) in WRAPPERS
     # 2. Path: must be an absolute path pointing to <plugin_root>/bin/<wrapper>
     if not plugin_root:
         return False
     expanded = os.path.expandvars(tok)
     if not (os.path.isabs(expanded) or (os.name == "nt" and len(expanded) >= 3 and expanded[0] == "/" and expanded[2] == "/" and expanded[1].isalpha())):
         return False
-    norm_tok = norm(expanded)
-    parent_dir, filename = os.path.split(norm_tok)
-    b = filename[:-3] if filename.endswith(".sh") else filename
-    if b not in WRAPPERS:
-        return False
-    expected_bin_dir = norm(os.path.join(plugin_root, "bin"))
-    return parent_dir == expected_bin_dir
+    parent_dir, filename = os.path.split(norm(expanded))
+    return strip_sh(filename) in WRAPPERS and parent_dir == norm(os.path.join(plugin_root, "bin"))
 
 # Quote-aware scan: split into pipeline segments on UNQUOTED '|', and flag any
 # unquoted metacharacter bash would act on (plus command substitution inside "").

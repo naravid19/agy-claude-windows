@@ -927,6 +927,17 @@ check "reason names the pipe count"     0 0 "2 pipes"                 "$(gate_wh
 check "reason rejects any pipeline"     0 0 "a pipeline"              "$(gate_why '"ls | agy-delegate -"')"
 check "reason points at --dir instead"  0 0 "--dir"                   "$(gate_why '"cat f | agy-delegate -"')"
 
+# issue 04: gate reasons for full-path rejections
+_fp_delegate="\"$ROOT/bin/agy-delegate\""
+_fp_json_semi=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$_fp_delegate x; foo")
+check "reason names ';' separator after full path wrapper" 0 0 "command separator" "$(gate_why "$_fp_json_semi")"
+_fp_json_and=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$_fp_delegate x && foo")
+check "reason names '&' after full path wrapper" 0 0 "chaining" "$(gate_why "$_fp_json_and")"
+_fp_nl_cmd=$(printf '"%s/bin/agy-delegate" x\nfoo' "$ROOT")
+_fp_json_nl=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$_fp_nl_cmd")
+check "reason names newline after full path wrapper" 0 0 "unquoted newline" "$(gate_why "$_fp_json_nl")"
+check "reason names external wrapper path" 0 0 "not agy-delegate or agy-job" "$(gate_why '"\"/tmp/bin/agy-delegate\" \"x\""')"
+
 # The reason goes into the AGENT'S CONTEXT, and a blocked command routinely carries a
 # delegation prompt. It must describe the syntax and never quote ANY of the command back.
 #
@@ -1307,6 +1318,11 @@ bi_case qualified-backtick    0 'Run `"${CLAUDE_PLUGIN_ROOT}/bin/agy-doctor"` be
 bi_case bare-run-prefix       1 'Run: agy-job status'
 bi_case qualified-run-prefix  0 'Run: "${CLAUDE_PLUGIN_ROOT}/bin/agy-job" status'
 bi_case prose-mention         0 'agy-delegate is the wrapper for delegation'
+bi_case qualified-and-bare    1 "$(printf '```bash\n"${CLAUDE_PLUGIN_ROOT}/bin/agy-delegate" "x" && agy-delegate "y"\n```')"
+bi_case chained-bare-cmd      1 "$(printf '```bash\necho "test" && agy-job status\n```')"
+
+python3 "$HERE/check-bin-invocation.py" >/dev/null 2>&1; rc=$?
+check "check-bin-invocation no args exits 2 (usage)" 2 "$rc"
 
 echo "== a CHANGELOG entry cannot land in a section that already shipped =="
 # #77 filed under the released 0.27.0; #82 did it again, branching before #81 opened

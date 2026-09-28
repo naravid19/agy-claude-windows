@@ -160,7 +160,7 @@ since 1.1.27 the wrapper names the refused tool from the envelope's `denied_acti
 (besides `2` failed / `3` empty). On agy ≥ 1.1.8 these are derived from the structured
 `status`/`error` envelope rather than stderr pattern-matching, so the classification is
 reliable. It prints a `AGY_SIGNAL {...}` line on stderr;
-`"${CLAUDE_PLUGIN_ROOT}/bin/agy-job" status`/`result` surface it, so you can react (e.g. retry quota with `--continue`,
+`"${CLAUDE_PLUGIN_ROOT}/bin/agy-job" status` / `"${CLAUDE_PLUGIN_ROOT}/bin/agy-job" result` surface it, so you can react (e.g. retry quota with `--continue`,
 fix the model name, or add `--yolo`) instead of scraping prose.
 
 **If Claude itself is running headless (`claude -p`, one-shot):** run delegations
@@ -242,7 +242,7 @@ commands** (`--yolo` grants write + terminal):
   on any version — exit 15 with the rule visibly present in the file. Separately, and only
   for `command(...)`, an entry naming no command (`command(time)`, comment-only, `()`)
   matched EVERY command before 1.1.11; do not attach that history to a mistyped
-  `write_file()`. If a user reports a rule that "should" work, have them run "${CLAUDE_PLUGIN_ROOT}/bin/agy-doctor"
+  `write_file()`. If a user reports a rule that "should" work, have them run `agy-doctor`
   before changing anything else.
   Run write tasks on a branch and verify with `git status`.
   prompt for or block `--dangerously-skip-permissions` — approve it or pre-allow
