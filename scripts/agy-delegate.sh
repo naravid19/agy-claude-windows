@@ -374,7 +374,7 @@ TO_CMD="$(timeout_cmd || true)"
 # it used to be cleaned by a trailing `rm -f`, which a SIGINT during the probe
 # skips. `rm -f ""` is a silent no-op, so the unset ones cost nothing.
 HELPF=""; ERR=""; OUTF=""; INPF=""; PROMPTF=""
-trap 'rm -f "$HELPF" "$ERR" "$OUTF" "$INPF" "$PROMPTF" 2>/dev/null' EXIT
+trap 'rm -f "$HELPF" "$ERR" "$OUTF" "$INPF" "$PROMPTF" 2>/dev/null || true' EXIT
 
 JSON_MODE=0
 STREAM_MODE=0
@@ -405,7 +405,7 @@ case "$(printf '%s' "$raw_so" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
       case "$agy_help" in
         *--input-format*)
           # CLI slash commands (/model, /usage) fail in stream-json mode; keep them on -p.
-          if ! [[ "$PROMPT" =~ ^/[a-zA-Z][a-zA-Z0-9_-]*([[:space:]]|$) ]]; then
+          if ! [[ "$PROMPT" =~ ^/(model|usage|permissions|help|cost|status|init|clear|quit|exit)([[:space:]]|$) ]]; then
             STREAM_MODE=1
             JSON_MODE=1
             ARGS+=(--input-format stream-json --output-format stream-json)
@@ -542,30 +542,28 @@ if [ "$JSON_MODE" -eq 1 ] && [[ "$OUT" = *[!$' \t\n\r']* ]]; then
         AGY_MODEL="$MODEL" AGY_TIER="$USAGE_TIER" "${PY[@]}" - <<'PY' 2>/dev/null || true
 import json, os, sys
 raw = os.environ.get("AGY_JSON", "")
+def extract_result(obj):
+    if isinstance(obj, dict):
+        if obj.get("event") == "result" and isinstance(obj.get("result"), dict):
+            return obj["result"]
+        if "status" in obj or "response" in obj:
+            return obj
+    return None
 d = None
 for line in raw.splitlines():
     line = line.strip()
     if not line:
         continue
     try:
-        obj = json.loads(line, strict=False)
-        if isinstance(obj, dict):
-            if obj.get("event") == "result" and isinstance(obj.get("result"), dict):
-                d = obj["result"]
-                break
-            elif "status" in obj or "response" in obj:
-                d = obj
+        d = extract_result(json.loads(line, strict=False))
+        if d:
+            break
     except Exception:
         continue
 if d is None:
     try:
         # strict=False: agy 1.1.8 leaves raw newlines inside "response".
-        obj = json.loads(raw, strict=False)
-        if isinstance(obj, dict):
-            if obj.get("event") == "result" and isinstance(obj.get("result"), dict):
-                d = obj["result"]
-            else:
-                d = obj
+        d = extract_result(json.loads(raw, strict=False))
     except Exception:
         sys.exit(1)
 if not isinstance(d, dict):

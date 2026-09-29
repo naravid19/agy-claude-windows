@@ -469,6 +469,20 @@ check "stream-json slash command stays on -p" 0 "$rc" "-p /model" "$out"
 if grep -q -- '--input-format' <<<"$out"; then echo "FAIL: slash command used --input-format"; FAIL=$((FAIL+1));
 else echo "ok: slash command bypassed stream-json"; PASS=$((PASS+1)); fi
 
+out=$(STUB_INPUT_FORMAT=1 STUB_MODE=args "$DELEGATE" "/usage" 2>/dev/null); rc=$?
+check "stream-json /usage stays on -p" 0 "$rc" "-p /usage" "$out"
+
+# Leading Unix paths (/tmp, /etc) must NOT be treated as slash commands
+out=$(STUB_INPUT_FORMAT=1 STUB_MODE=args "$DELEGATE" "/tmp/test.log contains an error" 2>/dev/null); rc=$?
+check "path starting with /tmp uses stream-json" 0 "$rc" "--input-format stream-json" "$out"
+if grep -q -- ' -p ' <<<"$out"; then echo "FAIL: leading /tmp path prompt diverted to -p"; FAIL=$((FAIL+1));
+else echo "ok: leading /tmp path prompt uses stream-json"; PASS=$((PASS+1)); fi
+
+out=$(STUB_INPUT_FORMAT=1 STUB_MODE=args "$DELEGATE" "/etc/hosts file is missing" 2>/dev/null); rc=$?
+check "path starting with /etc uses stream-json" 0 "$rc" "--input-format stream-json" "$out"
+if grep -q -- ' -p ' <<<"$out"; then echo "FAIL: leading /etc path prompt diverted to -p"; FAIL=$((FAIL+1));
+else echo "ok: leading /etc path prompt uses stream-json"; PASS=$((PASS+1)); fi
+
 # 2. Dry-run echo (--print-command):
 out=$(STUB_INPUT_FORMAT=1 "$DELEGATE" --tier pro --print-command "hi" 2>/dev/null); rc=$?
 check "stream-json --print-command shows --input-format stream-json" 0 "$rc" "--input-format stream-json" "$out"
