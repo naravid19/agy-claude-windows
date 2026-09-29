@@ -110,11 +110,83 @@ if [ "$1" = "models" ]; then
 fi
 # `agy --help`: advertise --output-format only when STUB_JSON_CAPABLE=1, so tests can
 # exercise both the structured (agy >= 1.1.8) and the plain-text fallback paths.
+# Advertise --input-format when STUB_INPUT_FORMAT=1.
 if [ "$1" = "--help" ]; then
-  [ "${STUB_JSON_CAPABLE:-0}" = "1" ] && echo "  --output-format  Output format for print mode (text, json, stream-json)"
+  if [ "${STUB_INPUT_FORMAT:-0}" = "1" ]; then
+    echo "  --input-format  Input format for print mode (text, stream-json)"
+    echo "  --output-format  Output format for print mode (text, json, stream-json)"
+  elif [ "${STUB_JSON_CAPABLE:-0}" = "1" ]; then
+    echo "  --output-format  Output format for print mode (text, json, stream-json)"
+  fi
   echo "  --print-timeout  timeout"
   exit 0
 fi
+
+IS_STREAM=0
+for a in "$@"; do
+  [ "$a" = "--input-format" ] && IS_STREAM=1
+done
+
+if [ -n "${STUB_RECORD_FILE:-}" ]; then
+  if [ "$IS_STREAM" -eq 1 ]; then
+    python3 -c '
+import json, sys
+try:
+    raw = sys.stdin.read()
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line: continue
+        d = json.loads(line)
+        if d.get("event") == "user":
+            content = d.get("message", {}).get("content", "")
+            with open(sys.argv[1], "wb") as f:
+                f.write(content.encode("utf-8"))
+            break
+except Exception as e:
+    with open(sys.argv[1], "wb") as f:
+        f.write(b"ERROR: " + str(e).encode("utf-8"))
+' "$STUB_RECORD_FILE" 2>/dev/null || true
+  else
+    prev=""
+    prompt_val=""
+    for a in "$@"; do
+      if [ "$prev" = "-p" ]; then
+        prompt_val="$a"
+        break
+      fi
+      prev="$a"
+    done
+    printf '%s' "$prompt_val" > "$STUB_RECORD_FILE"
+  fi
+fi
+
+if [ "$IS_STREAM" -eq 1 ]; then
+  printf '{"event":"init","conversation_id":"c1","init":{"cwd":"/tmp","tools":[]}}\n'
+  printf '{"event":"step_update","step_update":{"conversation_id":"c1","step_index":0,"state":"DONE","step_type":"user_input"}}\n'
+  case "${STUB_MODE:-text}" in
+    empty)   exit 0 ;;
+    fail)    echo "boom" >&2; exit 7 ;;
+    args)    printf '{"event":"result","result":{"conversation_id":"c1","status":"SUCCESS","response":"%s\\n","duration_seconds":1.0,"num_turns":1,"usage":{"input_tokens":10,"output_tokens":2,"thinking_tokens":0,"cache_read_tokens":0,"total_tokens":12}}}\n' "$*"; exit 0 ;;
+    quota)   echo "Error: quota exceeded for this model" >&2; printf '{"event":"result","result":{"conversation_id":"c1","status":"ERROR","response":"","error":"quota exceeded for this model","usage":{}}}\n'; exit 1 ;;
+    auth)    echo "Error: request is unauthenticated; please sign in" >&2; printf '{"event":"result","result":{"conversation_id":"c1","status":"ERROR","response":"","error":"request is unauthenticated; please sign in","usage":{}}}\n'; exit 1 ;;
+    timeout) echo "Error: deadline exceeded (the request timed out)" >&2; printf '{"event":"result","result":{"conversation_id":"c1","status":"ERROR","response":"","error":"Error: deadline exceeded (the request timed out)","usage":{}}}\n'; exit 1 ;;
+    badmodel) echo "Error: invalid --model \"X\": model X is not recognized as a known model" >&2; printf '{"event":"result","result":{"conversation_id":"c1","status":"ERROR","response":"","error":"invalid model selection: model X is not recognized as a known model","usage":{}}}\n'; exit 1 ;;
+    softdeny) echo 'no output produced — a tool required the "write_file" permission that headless mode cannot prompt for, so it was auto-denied. Add an allow-rule under permissions.allow' >&2; exit 0 ;;
+    json_err) printf '{"event":"result","result":{"conversation_id":"","status":"ERROR","response":"","error":"invalid model selection: model X is not recognized as a known model","usage":{}}}\n'; exit 1 ;;
+    json_err_quoted) printf '{"event":"result","result":{"conversation_id":"","status":"ERROR","response":"","error":"invalid model selection (--model \\"X\\" --effort \\"\\"): model X is not recognized as a known model or custom model in settings","usage":{}}}\n'; exit 1 ;;
+    json_quota) printf '{"event":"result","result":{"conversation_id":"","status":"ERROR","response":"","error":"quota exceeded for this model","usage":{}}}\n'; exit 1 ;;
+    json_denied) printf '{"event":"result","result":{"conversation_id":"c1","status":"ERROR","response":"","error":"permission check failed for write_file \\"/tmp/x/probe.txt\\": user denied permission for write_file(/tmp/x/probe.txt)","usage":{}}}\n'; exit 1 ;;
+    json_softdeny_1125) echo 'jetski: no output produced — a tool required the "write_file" permission that headless mode cannot prompt for, so it was auto-denied. Add an allow-rule under permissions.allow in settings.json (e.g. write_file(<target>)). Alternatively, re-run with --dangerously-skip-permissions to auto-approve all tools.' >&2; printf '{"event":"result","result":{"conversation_id":"b0f4bd0c-d590-4c4a-8c0e-c745f8c67218","status":"SUCCESS","response":"","duration_seconds":3.483514,"num_turns":1,"usage":{"input_tokens":22971,"output_tokens":78,"thinking_tokens":0,"cache_read_tokens":0,"total_tokens":23049}}}\n'; exit 0 ;;
+    json_denied_actions_120) echo 'jetski: no output produced — a tool required the "write_file" permission that headless mode cannot prompt for, so it was auto-denied. Add an allow-rule under permissions.allow in settings.json (e.g. write_file(<target>)). Alternatively, re-run with --dangerously-skip-permissions to auto-approve all tools.' >&2; printf '{"event":"result","result":{"conversation_id":"b13cec1d-55f6-482f-903b-e6b18a76afed","status":"SUCCESS","response":"","duration_seconds":2.88004,"num_turns":1,"usage":{"input_tokens":22670,"output_tokens":73,"thinking_tokens":0,"cache_read_tokens":0,"total_tokens":22743},"denied_actions":[{"action":"write_file","display_name":"WriteToFile"}]}}\n'; exit 0 ;;
+    json_denied_readurl_120) echo 'jetski: no output produced — a tool required the "read_url" permission that headless mode cannot prompt for, so it was auto-denied. Add an allow-rule under permissions.allow in settings.json (e.g. read_url(<target>)). Alternatively, re-run with --dangerously-skip-permissions to auto-approve all tools.' >&2; printf '{"event":"result","result":{"conversation_id":"2913e1f7-ea83-43be-8f0b-86834c541b00","status":"SUCCESS","response":"","duration_seconds":2.78866,"num_turns":1,"usage":{"input_tokens":22681,"output_tokens":41,"thinking_tokens":0,"cache_read_tokens":0,"total_tokens":22722},"denied_actions":[{"action":"read_url","display_name":"ReadUrlContent"}]}}\n'; exit 0 ;;
+    json_partial_timeout_120|partial_timeout_120) echo '[agy] print timeout after 5s with turn in progress; returning partial output' >&2; printf '{"event":"result","result":{"conversation_id":"5f164e4e-1d46-457b-8eac-40a36004bd1c","status":"SUCCESS","response":"# The Cosmos in Bronze: The History of the Antikythera Mechanism\\n\\n## 1. Introduction\\n\\nIn the spring of 1900, a violent storm compelled a crew of Greek sponge divers","duration_seconds":0,"num_turns":1,"usage":{"input_tokens":0,"output_tokens":0,"thinking_tokens":0,"cache_read_tokens":0,"total_tokens":0}}}\n'; exit 0 ;;
+    *)
+      printf '{"event":"step_update","step_update":{"conversation_id":"c1","step_index":1,"state":"ACTIVE","step_type":"agent_response","text_delta":"STUB_OK"}}\n'
+      printf '{"event":"result","result":{"conversation_id":"c1","status":"SUCCESS","response":"STUB_OK\\n","duration_seconds":1.2,"num_turns":1,"usage":{"input_tokens":10,"output_tokens":2,"thinking_tokens":1,"cache_read_tokens":3,"total_tokens":16}}}\n'
+      exit 0 ;;
+  esac
+fi
+
 case "${STUB_MODE:-text}" in
   empty)   exit 0 ;;                  # no stdout -> wrapper should exit 3
   fail)    echo "boom" >&2; exit 7 ;; # nonzero  -> wrapper should exit 2
@@ -374,6 +446,142 @@ else echo "ok: structured_output=off falls back to plain text"; PASS=$((PASS+1))
 err=$(STUB_JSON_CAPABLE=0 STUB_MODE=text "$DELEGATE" "hi" 2>&1 >/dev/null)
 if grep -q "AGY_USAGE" <<<"$err"; then echo "FAIL: used json against an agy that lacks the flag"; FAIL=$((FAIL+1));
 else echo "ok: falls back when agy has no --output-format (pre-1.1.8)"; PASS=$((PASS+1)); fi
+
+# --- stream-json mode (prompts over stdin) -----------------------------------
+echo "== stream-json mode (prompts over stdin) =="
+
+# 1. Capability detection & fallback:
+# If agy advertises --input-format, stream mode is used.
+out=$(STUB_INPUT_FORMAT=1 STUB_MODE=args "$DELEGATE" "hi" 2>/dev/null); rc=$?
+check "stream-json: uses --input-format stream-json" 0 "$rc" "--input-format stream-json" "$out"
+check "stream-json: uses --output-format stream-json" 0 "$rc" "--output-format stream-json" "$out"
+if grep -q -- ' -p ' <<<"$out"; then echo "FAIL: stream-json leaked -p into agy argv"; FAIL=$((FAIL+1));
+else echo "ok: stream-json omits -p from agy argv"; PASS=$((PASS+1)); fi
+
+# When agy lacks --input-format, -p path is kept
+out=$(STUB_INPUT_FORMAT=0 STUB_JSON_CAPABLE=1 STUB_MODE=args "$DELEGATE" "hi" 2>/dev/null); rc=$?
+check "stream-json fallback: uses -p when agy lacks --input-format" 0 "$rc" "-p hi" "$out"
+check "stream-json fallback: uses --output-format json" 0 "$rc" "--output-format json" "$out"
+
+# Slash commands stay on -p even when --input-format is available
+out=$(STUB_INPUT_FORMAT=1 STUB_MODE=args "$DELEGATE" "/model" 2>/dev/null); rc=$?
+check "stream-json slash command stays on -p" 0 "$rc" "-p /model" "$out"
+if grep -q -- '--input-format' <<<"$out"; then echo "FAIL: slash command used --input-format"; FAIL=$((FAIL+1));
+else echo "ok: slash command bypassed stream-json"; PASS=$((PASS+1)); fi
+
+# 2. Dry-run echo (--print-command):
+out=$(STUB_INPUT_FORMAT=1 "$DELEGATE" --tier pro --print-command "hi" 2>/dev/null); rc=$?
+check "stream-json --print-command shows --input-format stream-json" 0 "$rc" "--input-format stream-json" "$out"
+check "stream-json --print-command shows --output-format stream-json" 0 "$rc" "--output-format stream-json" "$out"
+if grep -q -- ' -p ' <<<"$out"; then echo "FAIL: stream-json --print-command included -p"; FAIL=$((FAIL+1));
+else echo "ok: stream-json --print-command omits -p"; PASS=$((PASS+1)); fi
+
+out=$(STUB_INPUT_FORMAT=1 "$DELEGATE" --print-command "/model" 2>/dev/null); rc=$?
+check "slash command --print-command keeps -p" 0 "$rc" "-p /model" "$out"
+
+# 3. Flags passthrough: --continue and --conversation <id>
+out=$(STUB_INPUT_FORMAT=1 STUB_MODE=args "$DELEGATE" --continue --conversation "conv-456" "hi" 2>/dev/null); rc=$?
+check "stream-json passes --continue" 0 "$rc" "--continue" "$out"
+check "stream-json passes --conversation" 0 "$rc" "--conversation conv-456" "$out"
+
+# 4. Caller stdin prompt: `agy-delegate -`
+out=$(printf 'piped prompt text' | STUB_INPUT_FORMAT=1 STUB_MODE=text "$DELEGATE" - 2>/dev/null); rc=$?
+check "stream-json with agy-delegate - succeeds" 0 "$rc" "STUB_OK" "$out"
+
+# 5. Byte-identical prompt delivery (quotes, backslashes, newlines, Thai text, 40K chars):
+P40K="$TMP/prompt_40k.txt"
+P40K_WIN="$P40K"
+command -v cygpath >/dev/null 2>&1 && P40K_WIN="$(cygpath -m "$P40K")"
+python3 -c '
+import sys
+thai = "\u0e20\u0e32\u0e29\u0e32\u0e44\u0e17\u0e22\u0e17\u0e14\u0e2a\u0e2d\u0e1a\u0e23\u0e30\u0e1a\u0e1a Antigravity "
+base = "Line with \"quotes\" and \\backslashes\\ and " + thai + "\n"
+repeat = (40000 // len(base.encode("utf-8"))) + 1
+content = (base * repeat)[:40000]
+with open(sys.argv[1], "wb") as f:
+    f.write(content.encode("utf-8"))
+' "$P40K_WIN"
+REC_STREAM="$TMP/rec_stream.txt"
+REC_STREAM_WIN="$REC_STREAM"
+command -v cygpath >/dev/null 2>&1 && REC_STREAM_WIN="$(cygpath -m "$REC_STREAM")"
+rm -f "$REC_STREAM"
+STUB_INPUT_FORMAT=1 STUB_RECORD_FILE="$REC_STREAM_WIN" "$DELEGATE" - < "$P40K" >/dev/null 2>&1
+if cmp -s "$P40K" "$REC_STREAM"; then
+  echo "ok: 40K prompt arrives byte-identical on stream-json path"; PASS=$((PASS+1));
+else
+  echo "FAIL: 40K prompt corrupted on stream-json path"; FAIL=$((FAIL+1));
+fi
+
+# Compare byte-identical on -p path with special characters (within argv limits)
+PSMALL="$TMP/prompt_special.txt"
+PSMALL_WIN="$PSMALL"
+command -v cygpath >/dev/null 2>&1 && PSMALL_WIN="$(cygpath -m "$PSMALL")"
+python3 -c '
+import sys
+thai = "\u0e20\u0e32\u0e29\u0e32\u0e44\u0e17\u0e22\u0e17\u0e14\u0e2a\u0e2d\u0e1a\u0e23\u0e30\u0e1a\u0e1a Antigravity "
+content = ("Line with \"quotes\" and \\backslashes\\ and " + thai + "\nLine 2\n") * 5
+with open(sys.argv[1], "wb") as f:
+    f.write(content.encode("utf-8"))
+' "$PSMALL_WIN"
+REC_P="$TMP/rec_p.txt"
+REC_P_WIN="$REC_P"
+command -v cygpath >/dev/null 2>&1 && REC_P_WIN="$(cygpath -m "$REC_P")"
+rm -f "$REC_P"
+STUB_JSON_CAPABLE=1 STUB_RECORD_FILE="$REC_P_WIN" "$DELEGATE" - < "$PSMALL" >/dev/null 2>&1
+if cmp -s "$PSMALL" "$REC_P"; then
+  echo "ok: special-char prompt arrives byte-identical on -p path"; PASS=$((PASS+1));
+else
+  echo "FAIL: special-char prompt corrupted on -p path"; FAIL=$((FAIL+1));
+fi
+
+# 6. AGY_USAGE field parity between paths:
+usage_p=$(STUB_JSON_CAPABLE=1 STUB_MODE=json_ok "$DELEGATE" "hi" 2>&1 >/dev/null | grep '^AGY_USAGE ')
+usage_s=$(STUB_INPUT_FORMAT=1 STUB_MODE=text "$DELEGATE" "hi" 2>&1 >/dev/null | grep '^AGY_USAGE ')
+check "stream-json emits AGY_USAGE" 0 0 "AGY_USAGE " "$usage_s"
+
+usage_match=$(python3 -c '
+import json, sys
+try:
+    up = json.loads(sys.argv[1].split(" ", 1)[1])
+    us = json.loads(sys.argv[2].split(" ", 1)[1])
+    assert set(up.keys()) == set(us.keys())
+    assert set(up["usage"].keys()) == set(us["usage"].keys())
+    print("MATCH")
+except Exception as e:
+    print("MISMATCH:", e)
+' "$usage_p" "$usage_s")
+check "AGY_USAGE fields match between stream-json and -p paths" 0 0 "MATCH" "$usage_match"
+
+# 7. AGY_SIGNAL class parity:
+# quota
+out_p=$(STUB_JSON_CAPABLE=1 STUB_MODE=json_quota "$DELEGATE" "hi" 2>&1); rc_p=$?
+out_s=$(STUB_INPUT_FORMAT=1 STUB_MODE=quota "$DELEGATE" "hi" 2>&1); rc_s=$?
+check "signal quota rc matches (exit 10)" "$rc_p" "$rc_s"
+check "signal quota emits QUOTA_EXHAUSTED" 10 "$rc_s" "QUOTA_EXHAUSTED" "$out_s"
+
+# badmodel
+out_p=$(STUB_JSON_CAPABLE=1 STUB_MODE=badmodel "$DELEGATE" "hi" 2>&1); rc_p=$?
+out_s=$(STUB_INPUT_FORMAT=1 STUB_MODE=badmodel "$DELEGATE" "hi" 2>&1); rc_s=$?
+check "signal model unavailable rc matches (exit 14)" "$rc_p" "$rc_s"
+check "signal model unavailable emits MODEL_UNAVAILABLE" 14 "$rc_s" "MODEL_UNAVAILABLE" "$out_s"
+
+# timeout
+out_p=$(STUB_JSON_CAPABLE=1 STUB_MODE=timeout "$DELEGATE" "hi" 2>&1); rc_p=$?
+out_s=$(STUB_INPUT_FORMAT=1 STUB_MODE=timeout "$DELEGATE" "hi" 2>&1); rc_s=$?
+check "signal timeout rc matches (exit 12)" "$rc_p" "$rc_s"
+check "signal timeout emits TIMEOUT" 12 "$rc_s" "TIMEOUT" "$out_s"
+
+# generic failure
+out_p=$(STUB_JSON_CAPABLE=1 STUB_MODE=fail "$DELEGATE" "hi" 2>&1); rc_p=$?
+out_s=$(STUB_INPUT_FORMAT=1 STUB_MODE=fail "$DELEGATE" "hi" 2>&1); rc_s=$?
+check "signal generic failure rc matches (exit 2)" "$rc_p" "$rc_s"
+check "signal generic failure emits AGY_FAILED" 2 "$rc_s" "AGY_FAILED" "$out_s"
+
+# partial timeout (1.1.28+ mid-turn timeout returns partial response with exit 12)
+out_s=$(STUB_INPUT_FORMAT=1 STUB_MODE=partial_timeout_120 "$DELEGATE" --timeout 5s "write an essay" 2>"$TMP/pt_s.err"); rc_s=$?
+check "stream-json partial timeout exits 12" 12 "$rc_s"
+check "stream-json partial timeout prints partial output" 12 "$rc_s" "Cosmos in Bronze" "$out_s"
+check "stream-json partial timeout emits TIMEOUT signal" 12 "$rc_s" "TIMEOUT" "$(cat "$TMP/pt_s.err")"
 
 # --- AGY_USAGE_LOG side channel ---------------------------------------------
 # Regression guard for a measurement loss seen in the wild: stderr carries the
@@ -964,7 +1172,7 @@ leak_free "name-shaped token (an API key is)"    '"sk-ant-oat01-SECRETPROMPTMARK
 leak_free "plain wrong command"                  '"SECRETPROMPTMARKER --flag x"'                       'SECRETPROMPTMARKER'
 
 AGENT="$ROOT/agents/antigravity-delegate.md"
-tl=$(grep -m1 '^tools:' "$AGENT")
+tl=$(grep -m1 '^tools:' "$AGENT" | tr -d '\r')
 if [ "$tl" = "tools: Bash, Read, Glob" ]; then echo "ok: delegate agent tools allowlist exact (no Write/Edit)"; PASS=$((PASS+1));
 else echo "FAIL: delegate agent tools line unexpected: '$tl'"; FAIL=$((FAIL+1)); fi
 if grep -q "PreToolUse" "$AGENT" && grep -q "validate-delegate-bash.sh" "$AGENT"; then

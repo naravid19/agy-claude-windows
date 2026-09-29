@@ -249,7 +249,7 @@ while [ $# -gt 0 ]; do
     -m|--model)     need "$#" "$1"; MODEL="$2"; shift 2 ;;
     --print-command) PRINT_CMD=1; shift ;;          # dry run: show the resolved agy command
     -h|--help)      usage ;;
-    -)              PROMPT="$(cat)"; shift ;;       # read prompt from stdin
+    -)              IFS= read -r -d '' PROMPT || true; shift ;; # read prompt from stdin
     --)             shift; PROMPT="${*:-}"; break ;;
     -*)             die "unknown option '$1'" ;;
     *)              PROMPT="$*"; break ;;            # rest is the prompt
@@ -373,16 +373,17 @@ TO_CMD="$(timeout_cmd || true)"
 # exists. Declaring them empty up front means the probe's file is covered too —
 # it used to be cleaned by a trailing `rm -f`, which a SIGINT during the probe
 # skips. `rm -f ""` is a silent no-op, so the unset ones cost nothing.
-HELPF=""; ERR=""; OUTF=""
-trap 'rm -f "$HELPF" "$ERR" "$OUTF" 2>/dev/null' EXIT
+HELPF=""; ERR=""; OUTF=""; INPF=""; PROMPTF=""
+trap 'rm -f "$HELPF" "$ERR" "$OUTF" "$INPF" "$PROMPTF" 2>/dev/null' EXIT
 
 JSON_MODE=0
+STREAM_MODE=0
 . "$(dirname "$0")/find-python.sh"
 raw_so="${CLAUDE_PLUGIN_OPTION_STRUCTURED_OUTPUT:-on}"
 case "$(printf '%s' "$raw_so" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')" in
   off|false|0|no|disabled) ;;
   *)
-    if [ "$PRINT_CMD" -ne 1 ] && find_python; then
+    if { [ "$PRINT_CMD" -ne 1 ] || command -v agy >/dev/null 2>&1; } && find_python; then
       # Capability probe. Deliberately NOT `agy --help | grep -q`: `grep -q` exits at
       # the first match and closes the pipe, so `agy --help` can die of SIGPIPE (141)
       # and, under `set -o pipefail`, the whole pipeline reads as "failed" — silently
@@ -402,14 +403,32 @@ case "$(printf '%s' "$raw_so" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
       # `|| true` so the assignment cannot fail under `set -e` and skip the rm.
       agy_help="$(cat "$HELPF" 2>/dev/null || true)"; rm -f "$HELPF"
       case "$agy_help" in
-        *--output-format*) JSON_MODE=1; ARGS+=(--output-format json) ;;
+        *--input-format*)
+          # CLI slash commands (/model, /usage) fail in stream-json mode; keep them on -p.
+          if ! [[ "$PROMPT" =~ ^/[a-zA-Z][a-zA-Z0-9_-]*([[:space:]]|$) ]]; then
+            STREAM_MODE=1
+            JSON_MODE=1
+            ARGS+=(--input-format stream-json --output-format stream-json)
+          elif [[ "$agy_help" == *--output-format* ]]; then
+            JSON_MODE=1
+            ARGS+=(--output-format json)
+          fi
+          ;;
+        *--output-format*)
+          JSON_MODE=1
+          ARGS+=(--output-format json)
+          ;;
       esac
     fi ;;
 esac
 
 # --- dry run: print the resolved (shell-quoted) agy invocation and exit ---
 if [ "$PRINT_CMD" -eq 1 ]; then
-  { printf 'agy'; printf ' %q' "${ARGS[@]}" -p "$PROMPT"; printf '\n'; }
+  if [ "$STREAM_MODE" -eq 1 ]; then
+    { printf 'agy'; printf ' %q' "${ARGS[@]}"; printf '\n'; }
+  else
+    { printf 'agy'; printf ' %q' "${ARGS[@]}" -p "$PROMPT"; printf '\n'; }
+  fi
   exit 0
 fi
 
@@ -438,14 +457,61 @@ if on_windows_native && [ -z "$TO_CMD" ]; then
   echo "agy-delegate:   call never returns, run from WSL/macOS/Linux, or install coreutils \`timeout\`." >&2
 fi
 
+if [ "$STREAM_MODE" -eq 1 ]; then
+  INPF="$(mktemp "${TMPDIR:-/tmp}/agy-inp.XXXXXX")"
+  PROMPTF="$(mktemp "${TMPDIR:-/tmp}/agy-prompt.XXXXXX")"
+  printf '%s' "$PROMPT" > "$PROMPTF"
+  "${PY[@]}" - <<'PY' "$PROMPTF" "$INPF" 2>/dev/null || true
+import json, sys
+try:
+    with open(sys.argv[1], "r", encoding="utf-8", errors="replace") as fh:
+        prompt = fh.read()
+    payload = {"event": "user", "message": {"content": prompt}}
+    with open(sys.argv[2], "w", encoding="utf-8") as fh:
+        fh.write(json.dumps(payload, ensure_ascii=False) + "\n")
+except Exception:
+    sys.exit(1)
+PY
+  rm -f "$PROMPTF"
+  if [ ! -s "$INPF" ]; then
+    STREAM_MODE=0
+    # remove stream flags added earlier
+    NEW_ARGS=()
+    skip_next=0
+    for a in "${ARGS[@]}"; do
+      if [ "$skip_next" -eq 1 ]; then skip_next=0; continue; fi
+      if [ "$a" = "--input-format" ]; then skip_next=1; continue; fi
+      if [ "$a" = "--output-format" ]; then skip_next=1; NEW_ARGS+=(--output-format json); continue; fi
+      NEW_ARGS+=("$a")
+    done
+    ARGS=("${NEW_ARGS[@]}")
+  fi
+fi
+
 set +e
-if [ -n "$TO_CMD" ]; then
-  # --kill-after sends SIGKILL if agy ignores the initial SIGTERM (defensive).
-  "$TO_CMD" --kill-after=10 "$TO_SECS" agy "${ARGS[@]}" -p "$PROMPT" < /dev/null >"$OUTF" 2>"$ERR"
-  RC=$?
+if [ "$STREAM_MODE" -eq 1 ]; then
+  if [ -n "$TO_CMD" ]; then
+    # --kill-after sends SIGKILL if agy ignores the initial SIGTERM (defensive).
+    "$TO_CMD" --kill-after=10 "$TO_SECS" agy "${ARGS[@]}" < "$INPF" >"$OUTF" 2>"$ERR"
+    RC=$?
+  else
+    agy "${ARGS[@]}" < "$INPF" >"$OUTF" 2>"$ERR"
+    RC=$?
+  fi
 else
-  agy "${ARGS[@]}" -p "$PROMPT" < /dev/null >"$OUTF" 2>"$ERR"
-  RC=$?
+  # Protect Windows Rust binaries (uutils timeout, agy.exe) from aborting on incomplete UTF-8 bytes in argv
+  if command -v iconv >/dev/null 2>&1; then
+    _clean="$(printf '%sx' "$PROMPT" | iconv -c -f UTF-8 -t UTF-8 2>/dev/null || true)"
+    [ -n "$_clean" ] && PROMPT="${_clean%x}"
+  fi
+  if [ -n "$TO_CMD" ]; then
+    # --kill-after sends SIGKILL if agy ignores the initial SIGTERM (defensive).
+    "$TO_CMD" --kill-after=10 "$TO_SECS" agy "${ARGS[@]}" -p "$PROMPT" < /dev/null >"$OUTF" 2>"$ERR"
+    RC=$?
+  else
+    agy "${ARGS[@]}" -p "$PROMPT" < /dev/null >"$OUTF" 2>"$ERR"
+    RC=$?
+  fi
 fi
 OUT="$(cat "$OUTF" 2>/dev/null)"
 set -e
@@ -476,11 +542,33 @@ if [ "$JSON_MODE" -eq 1 ] && [[ "$OUT" = *[!$' \t\n\r']* ]]; then
         AGY_MODEL="$MODEL" AGY_TIER="$USAGE_TIER" "${PY[@]}" - <<'PY' 2>/dev/null || true
 import json, os, sys
 raw = os.environ.get("AGY_JSON", "")
-try:
-    # strict=False: agy 1.1.8 leaves raw newlines inside "response".
-    d = json.loads(raw, strict=False)
-    if not isinstance(d, dict): raise ValueError
-except Exception:
+d = None
+for line in raw.splitlines():
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        obj = json.loads(line, strict=False)
+        if isinstance(obj, dict):
+            if obj.get("event") == "result" and isinstance(obj.get("result"), dict):
+                d = obj["result"]
+                break
+            elif "status" in obj or "response" in obj:
+                d = obj
+    except Exception:
+        continue
+if d is None:
+    try:
+        # strict=False: agy 1.1.8 leaves raw newlines inside "response".
+        obj = json.loads(raw, strict=False)
+        if isinstance(obj, dict):
+            if obj.get("event") == "result" and isinstance(obj.get("result"), dict):
+                d = obj["result"]
+            else:
+                d = obj
+    except Exception:
+        sys.exit(1)
+if not isinstance(d, dict):
     sys.exit(1)
 with open(os.environ["AGY_RESP_FILE"], "w", encoding="utf-8") as fh:
     fh.write(str(d.get("response", "") or ""))
