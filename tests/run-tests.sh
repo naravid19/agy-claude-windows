@@ -12,7 +12,16 @@ DELEGATE="$ROOT/scripts/agy-delegate.sh"
 
 MEASURE="$ROOT/scripts/measure-session.py"
 
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+TMP="$(mktemp -d)"
+cleanup() {
+  if [ -s "$TMP/job-cancel-child-pid" ]; then
+    local wp
+    wp=$(sed -n '2p' "$TMP/job-cancel-child-pid" 2>/dev/null || true)
+    [ -n "$wp" ] && taskkill //F //PID "$wp" >/dev/null 2>&1 || true
+  fi
+  rm -rf "$TMP"
+}
+trap cleanup EXIT
 # SKIP is separate from PASS on purpose: a check that could not run is not a check that
 # passed. The CHANGELOG-placement gate needs a PR base, so it is skipped on a local run
 # and on push, and counting it green there would hide the fact that nothing judged it.
@@ -122,17 +131,7 @@ if [ "$1" = "--help" ]; then
 fi
 
 if [ -n "${STUB_CHILD_PID_FILE:-}" ]; then
-  case "${OSTYPE:-}" in
-    msys*|cygwin*|win32)
-      ping.exe 127.0.0.1 -n 60 >/dev/null 2>&1 &
-      ;;
-    *)
-      case "$(uname -s 2>/dev/null)" in
-        MINGW*|MSYS*|CYGWIN*) ping.exe 127.0.0.1 -n 60 >/dev/null 2>&1 & ;;
-        *) sleep 60 & ;;
-      esac
-      ;;
-  esac
+  ping.exe 127.0.0.1 -n 60 >/dev/null 2>&1 &
   _cpid=$!
   echo "$_cpid" > "$STUB_CHILD_PID_FILE"
   for _ in 1 2 3 4 5; do
@@ -2235,53 +2234,70 @@ done
 out=$("$JOB" result "$id" 2>/dev/null); rc=$?
 check "job result -> output when done" 0 "$rc" "STUB_OK" "$out"
 
-child_pid_file="$TMP/job-cancel-child-pid"
-rm -f "$child_pid_file"
-cid=$(STUB_MODE=text STUB_SLEEP=10 STUB_CHILD_PID_FILE="$child_pid_file" "$JOB" start --tier flash "long task" 2>/dev/null)
-for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25; do
-  if [ -s "$child_pid_file" ]; then
-    case "${OSTYPE:-}" in
-      msys*|cygwin*|win32) [ "$(wc -l < "$child_pid_file" 2>/dev/null || echo 0)" -ge 2 ] && break ;;
-      *) break ;;
-    esac
-  fi
-  sleep 0.2
-done
-c_out=$("$JOB" cancel "$cid" 2>&1); c_rc=$?
-check "job cancel -> exit 0" 0 "$c_rc"
-if grep -q "cancelled $cid" <<<"$c_out"; then
-  echo "ok: job cancel reports cancelled <id>"; PASS=$((PASS+1))
-else
-  echo "FAIL: job cancel output unexpected: $c_out"; FAIL=$((FAIL+1))
-fi
-sleep 0.5
-out=$("$JOB" status "$cid" 2>/dev/null)
-if grep -q "state=running" <<<"$out"; then
-  echo "FAIL: job cancel (still running)"; FAIL=$((FAIL+1))
-else echo "ok: job cancel stops it"; PASS=$((PASS+1)); fi
+is_win=0
+case "${OSTYPE:-}" in
+  msys*|cygwin*|win32) is_win=1 ;;
+  *) case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) is_win=1 ;; esac ;;
+esac
 
-child_alive=0
-if [ -s "$child_pid_file" ]; then
-  read -r c_mpid < "$child_pid_file"
-  c_winpid=$(sed -n '2p' "$child_pid_file")
-  for _ in 1 2 3 4 5 6 7 8 9 10; do
-    child_alive=0
-    if [ -n "$c_winpid" ]; then
-      if ps -W 2>/dev/null | awk '{print $4}' | grep -qx "$c_winpid"; then
-        child_alive=1
-      fi
-    elif [ -n "$c_mpid" ] && kill -0 "$c_mpid" 2>/dev/null; then
-      child_alive=1
+if [ "$is_win" -eq 1 ]; then
+  child_pid_file="$TMP/job-cancel-child-pid"
+  rm -f "$child_pid_file"
+  cid=$(STUB_MODE=text STUB_SLEEP=10 STUB_CHILD_PID_FILE="$child_pid_file" "$JOB" start --tier flash "long task" 2>/dev/null)
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25; do
+    if [ -s "$child_pid_file" ] && [ "$(wc -l < "$child_pid_file" 2>/dev/null || echo 0)" -ge 2 ]; then
+      break
     fi
-    [ "$child_alive" -eq 0 ] && break
-    sleep 0.3
+    sleep 0.2
   done
-fi
-if [ "$child_alive" -eq 1 ]; then
-  echo "FAIL: job cancel left child process running (winpid=${c_winpid:-}, mpid=${c_mpid:-})"; FAIL=$((FAIL+1))
-  [ -n "${c_winpid:-}" ] && taskkill //F //PID "$c_winpid" >/dev/null 2>&1 || true
+  c_out=$("$JOB" cancel "$cid" 2>&1); c_rc=$?
+  check "job cancel -> exit 0" 0 "$c_rc"
+  if grep -q "cancelled $cid" <<<"$c_out"; then
+    echo "ok: job cancel reports cancelled <id>"; PASS=$((PASS+1))
+  else
+    echo "FAIL: job cancel output unexpected: $c_out"; FAIL=$((FAIL+1))
+  fi
+  sleep 0.5
+  out=$("$JOB" status "$cid" 2>/dev/null)
+  if grep -q "state=running" <<<"$out"; then
+    echo "FAIL: job cancel (still running)"; FAIL=$((FAIL+1))
+  else echo "ok: job cancel stops it"; PASS=$((PASS+1)); fi
+
+  child_alive=0
+  if [ -s "$child_pid_file" ]; then
+    c_winpid=$(sed -n '2p' "$child_pid_file")
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+      child_alive=0
+      if [ -n "$c_winpid" ]; then
+        if ps -W 2>/dev/null | awk '{print $4}' | grep -qx "$c_winpid"; then
+          child_alive=1
+        fi
+      fi
+      [ "$child_alive" -eq 0 ] && break
+      sleep 0.3
+    done
+  fi
+  if [ "$child_alive" -eq 1 ]; then
+    echo "FAIL: job cancel left child process running (winpid=${c_winpid:-})"; FAIL=$((FAIL+1))
+    [ -n "${c_winpid:-}" ] && taskkill //F //PID "$c_winpid" >/dev/null 2>&1 || true
+  else
+    echo "ok: job cancel killed native process tree"; PASS=$((PASS+1))
+  fi
 else
-  echo "ok: job cancel killed native process tree"; PASS=$((PASS+1))
+  cid=$(STUB_MODE=text STUB_SLEEP=10 "$JOB" start --tier flash "long task" 2>/dev/null)
+  sleep 0.5
+  c_out=$("$JOB" cancel "$cid" 2>&1); c_rc=$?
+  check "job cancel -> exit 0" 0 "$c_rc"
+  if grep -q "cancelled $cid" <<<"$c_out"; then
+    echo "ok: job cancel reports cancelled <id>"; PASS=$((PASS+1))
+  else
+    echo "FAIL: job cancel output unexpected: $c_out"; FAIL=$((FAIL+1))
+  fi
+  sleep 0.5
+  out=$("$JOB" status "$cid" 2>/dev/null)
+  if grep -q "state=running" <<<"$out"; then
+    echo "FAIL: job cancel (still running)"; FAIL=$((FAIL+1))
+  else echo "ok: job cancel stops it"; PASS=$((PASS+1)); fi
 fi
 
 c_idle=$("$JOB" cancel "$cid" 2>&1); c_rc=$?

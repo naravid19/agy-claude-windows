@@ -119,15 +119,20 @@ case "$cmd" in
     pid="$(cat "$jd/pid" 2>/dev/null || true)"
     if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
       if on_windows_native; then
-        tk="taskkill"
-        command -v taskkill >/dev/null 2>&1 || [ ! -x "/c/Windows/System32/taskkill.exe" ] || tk="/c/Windows/System32/taskkill.exe"
-        winpids=$(ps -W 2>/dev/null | awk -v root="$pid" '
+        taskkill_cmd="taskkill"
+        command -v taskkill >/dev/null 2>&1 || [ ! -x "/c/Windows/System32/taskkill.exe" ] || taskkill_cmd="/c/Windows/System32/taskkill.exe"
+        root_winpid=""
+        [ -r "/proc/$pid/winpid" ] && read -r root_winpid < "/proc/$pid/winpid"
+        tk_args=()
+        [ -n "$root_winpid" ] && tk_args+=(//PID "$root_winpid")
+        for wp in $(ps -W 2>/dev/null | awk -v root="$pid" '
           NR > 1 && $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ && $4 ~ /^[0-9]+$/ {
             parent[$1] = $2
             winpid[$1] = $4
           }
           END {
             for (p in parent) {
+              if (p == root) continue
               curr = p
               while (curr != 0 && curr != "" && curr != parent[curr]) {
                 if (curr == root) {
@@ -138,12 +143,12 @@ case "$cmd" in
               }
             }
           }
-        ')
-        root_wp=""
-        [ -f "/proc/$pid/winpid" ] && root_wp="$(cat "/proc/$pid/winpid" 2>/dev/null || true)"
-        for wp in $winpids $root_wp; do
-          "$tk" //T //F //PID "$wp" >/dev/null 2>&1 || true
+        '); do
+          [ "$wp" != "$root_winpid" ] && tk_args+=(//PID "$wp")
         done
+        if [ ${#tk_args[@]} -gt 0 ]; then
+          "$taskkill_cmd" //T //F "${tk_args[@]}" >/dev/null 2>&1 || true
+        fi
         kill "$pid" 2>/dev/null || true
       else
         pkill -P "$pid" 2>/dev/null || true   # children (agy) first
