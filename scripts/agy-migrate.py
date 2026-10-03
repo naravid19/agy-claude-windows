@@ -1628,27 +1628,16 @@ def main(argv=None):
             try:
                 res = i["fn"]()
             except Exception as e:                       # keep going; report at the end
-                if i["unit"] == "claudemd" and (
-                    getattr(e, "winerror", None) == 1314
-                    or getattr(e, "errno", None) == 1314
-                    or "1314" in str(e)
-                ):
-                    res = "skip_dev_mode"
-                else:
-                    res, e_txt = False, f"{type(e).__name__}: {e}"
-                    print(f"  {C['err']}{SYM['err']}{C['off']} {i['action']} {i['target']} — {e_txt}")
+                res, e_txt = False, f"{type(e).__name__}: {e}"
+                print(f"  {C['err']}{SYM['err']}{C['off']} {i['action']} {i['target']} — {e_txt}")
             else:
                 if res == "skip_dev_mode":
-                    pass
-                elif res is False:
-                    print(f"  {C['err']}{SYM['err']}{C['off']} {i['action']} {i['target']}")
+                    skipped_dev_mode.append(i["target"])
+                    print(f"  {C['warn']}{SYM['skip']}{C['off']} {i['action']} {i['target']} — skipped (Developer Mode disabled)")
                 else:
-                    print(f"  {C['ok']}{SYM['ok']}{C['off']} {i['action']} {i['target']}")
-
-            if res == "skip_dev_mode":
-                skipped_dev_mode.append(i["target"])
-                print(f"  {C['warn']}{SYM['skip']}{C['off']} {i['action']} {i['target']} — skipped (Developer Mode disabled)")
-            elif res is False:
+                    mark = (C["err"] + SYM["err"]) if res is False else (C["ok"] + SYM["ok"])
+                    print(f"  {mark}{C['off']} {i['action']} {i['target']}")
+            if res is False:
                 failed.append(f"{i['unit']}/{i['action']}")
             # Saved per step, not once at the end: a crash halfway through must still
             # leave --uninstall able to find everything written so far.

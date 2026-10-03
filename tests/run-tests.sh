@@ -2119,6 +2119,7 @@ else
     echo "FAIL: media prompt paths altered on non-Windows"; FAIL=$((FAIL+1))
   fi
 fi
+rm -f "$RECORD_FILE"
 
 echo "== agy-trace.sh (delegation trajectory reader) =="
 TRACE="$ROOT/scripts/agy-trace.sh"
@@ -2283,15 +2284,9 @@ done
 out=$("$JOB" result "$id" 2>/dev/null); rc=$?
 check "job result -> output when done" 0 "$rc" "STUB_OK" "$out"
 
-is_win=0
-case "${OSTYPE:-}" in
-  msys*|cygwin*|win32) is_win=1 ;;
-  *) case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) is_win=1 ;; esac ;;
-esac
-
 child_pid_file="$TMP/job-cancel-child-pid"
 rm -f "$child_pid_file"
-if [ "$is_win" -eq 1 ]; then
+if on_windows_native; then
   cid=$(STUB_MODE=text STUB_SLEEP=10 STUB_CHILD_PID_FILE="$child_pid_file" "$JOB" start --tier flash "long task" 2>/dev/null)
   for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25; do
     [ -s "$child_pid_file" ] && break
@@ -2315,7 +2310,7 @@ if grep -q "state=running" <<<"$out"; then
   echo "FAIL: job cancel (still running)"; FAIL=$((FAIL+1))
 else echo "ok: job cancel stops it"; PASS=$((PASS+1)); fi
 
-if [ "$is_win" -eq 1 ]; then
+if on_windows_native; then
   c_winpid=""
   [ -s "$child_pid_file" ] && read -r c_winpid < "$child_pid_file"
   if [ -z "$c_winpid" ]; then
