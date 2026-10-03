@@ -15,9 +15,12 @@ MEASURE="$ROOT/scripts/measure-session.py"
 TMP="$(mktemp -d)"
 cleanup() {
   if [ -s "$TMP/job-cancel-child-pid" ]; then
-    local wp
-    wp=$(sed -n '2p' "$TMP/job-cancel-child-pid" 2>/dev/null || true)
-    [ -n "$wp" ] && taskkill //F //PID "$wp" >/dev/null 2>&1 || true
+    local winpid_to_kill tk="taskkill"
+    read -r winpid_to_kill < "$TMP/job-cancel-child-pid" 2>/dev/null || true
+    if [ -n "$winpid_to_kill" ]; then
+      command -v taskkill >/dev/null 2>&1 || [ ! -x "/c/Windows/System32/taskkill.exe" ] || tk="/c/Windows/System32/taskkill.exe"
+      "$tk" //F //PID "$winpid_to_kill" >/dev/null 2>&1 || true
+    fi
   fi
   rm -rf "$TMP"
 }
@@ -133,9 +136,11 @@ fi
 if [ -n "${STUB_CHILD_PID_FILE:-}" ]; then
   ping.exe 127.0.0.1 -n 60 >/dev/null 2>&1 &
   _cpid=$!
-  echo "$_cpid" > "$STUB_CHILD_PID_FILE"
   for _ in 1 2 3 4 5; do
-    [ -f "/proc/$_cpid/winpid" ] && { cat "/proc/$_cpid/winpid" >> "$STUB_CHILD_PID_FILE"; break; }
+    if [ -f "/proc/$_cpid/winpid" ]; then
+      cat "/proc/$_cpid/winpid" > "$STUB_CHILD_PID_FILE"
+      break
+    fi
     sleep 0.1
   done
 fi
@@ -2240,64 +2245,56 @@ case "${OSTYPE:-}" in
   *) case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) is_win=1 ;; esac ;;
 esac
 
+child_pid_file="$TMP/job-cancel-child-pid"
+rm -f "$child_pid_file"
 if [ "$is_win" -eq 1 ]; then
-  child_pid_file="$TMP/job-cancel-child-pid"
-  rm -f "$child_pid_file"
   cid=$(STUB_MODE=text STUB_SLEEP=10 STUB_CHILD_PID_FILE="$child_pid_file" "$JOB" start --tier flash "long task" 2>/dev/null)
   for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25; do
-    if [ -s "$child_pid_file" ] && [ "$(wc -l < "$child_pid_file" 2>/dev/null || echo 0)" -ge 2 ]; then
-      break
-    fi
+    [ -s "$child_pid_file" ] && break
     sleep 0.2
   done
-  c_out=$("$JOB" cancel "$cid" 2>&1); c_rc=$?
-  check "job cancel -> exit 0" 0 "$c_rc"
-  if grep -q "cancelled $cid" <<<"$c_out"; then
-    echo "ok: job cancel reports cancelled <id>"; PASS=$((PASS+1))
-  else
-    echo "FAIL: job cancel output unexpected: $c_out"; FAIL=$((FAIL+1))
-  fi
+else
+  cid=$(STUB_MODE=text STUB_SLEEP=10 "$JOB" start --tier flash "long task" 2>/dev/null)
   sleep 0.5
-  out=$("$JOB" status "$cid" 2>/dev/null)
-  if grep -q "state=running" <<<"$out"; then
-    echo "FAIL: job cancel (still running)"; FAIL=$((FAIL+1))
-  else echo "ok: job cancel stops it"; PASS=$((PASS+1)); fi
+fi
 
-  child_alive=0
-  if [ -s "$child_pid_file" ]; then
-    c_winpid=$(sed -n '2p' "$child_pid_file")
+c_out=$("$JOB" cancel "$cid" 2>&1); c_rc=$?
+check "job cancel -> exit 0" 0 "$c_rc"
+if grep -q "cancelled $cid" <<<"$c_out"; then
+  echo "ok: job cancel reports cancelled <id>"; PASS=$((PASS+1))
+else
+  echo "FAIL: job cancel output unexpected: $c_out"; FAIL=$((FAIL+1))
+fi
+sleep 0.5
+out=$("$JOB" status "$cid" 2>/dev/null)
+if grep -q "state=running" <<<"$out"; then
+  echo "FAIL: job cancel (still running)"; FAIL=$((FAIL+1))
+else echo "ok: job cancel stops it"; PASS=$((PASS+1)); fi
+
+if [ "$is_win" -eq 1 ]; then
+  c_winpid=""
+  [ -s "$child_pid_file" ] && read -r c_winpid < "$child_pid_file"
+  if [ -z "$c_winpid" ]; then
+    echo "FAIL: job cancel child winpid not recorded"; FAIL=$((FAIL+1))
+  else
+    child_alive=0
     for _ in 1 2 3 4 5 6 7 8 9 10; do
       child_alive=0
-      if [ -n "$c_winpid" ]; then
-        if ps -W 2>/dev/null | awk '{print $4}' | grep -qx "$c_winpid"; then
-          child_alive=1
-        fi
+      if ps -W 2>/dev/null | awk '{print $4}' | grep -qx "$c_winpid"; then
+        child_alive=1
       fi
       [ "$child_alive" -eq 0 ] && break
       sleep 0.3
     done
+    if [ "$child_alive" -eq 1 ]; then
+      echo "FAIL: job cancel left child process running (winpid=${c_winpid})"; FAIL=$((FAIL+1))
+      local_tk="taskkill"
+      command -v taskkill >/dev/null 2>&1 || [ ! -x "/c/Windows/System32/taskkill.exe" ] || local_tk="/c/Windows/System32/taskkill.exe"
+      "$local_tk" //F //PID "$c_winpid" >/dev/null 2>&1 || true
+    else
+      echo "ok: job cancel killed native process tree"; PASS=$((PASS+1))
+    fi
   fi
-  if [ "$child_alive" -eq 1 ]; then
-    echo "FAIL: job cancel left child process running (winpid=${c_winpid:-})"; FAIL=$((FAIL+1))
-    [ -n "${c_winpid:-}" ] && taskkill //F //PID "$c_winpid" >/dev/null 2>&1 || true
-  else
-    echo "ok: job cancel killed native process tree"; PASS=$((PASS+1))
-  fi
-else
-  cid=$(STUB_MODE=text STUB_SLEEP=10 "$JOB" start --tier flash "long task" 2>/dev/null)
-  sleep 0.5
-  c_out=$("$JOB" cancel "$cid" 2>&1); c_rc=$?
-  check "job cancel -> exit 0" 0 "$c_rc"
-  if grep -q "cancelled $cid" <<<"$c_out"; then
-    echo "ok: job cancel reports cancelled <id>"; PASS=$((PASS+1))
-  else
-    echo "FAIL: job cancel output unexpected: $c_out"; FAIL=$((FAIL+1))
-  fi
-  sleep 0.5
-  out=$("$JOB" status "$cid" 2>/dev/null)
-  if grep -q "state=running" <<<"$out"; then
-    echo "FAIL: job cancel (still running)"; FAIL=$((FAIL+1))
-  else echo "ok: job cancel stops it"; PASS=$((PASS+1)); fi
 fi
 
 c_idle=$("$JOB" cancel "$cid" 2>&1); c_rc=$?

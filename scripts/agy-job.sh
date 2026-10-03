@@ -123,9 +123,10 @@ case "$cmd" in
         command -v taskkill >/dev/null 2>&1 || [ ! -x "/c/Windows/System32/taskkill.exe" ] || taskkill_cmd="/c/Windows/System32/taskkill.exe"
         root_winpid=""
         [ -r "/proc/$pid/winpid" ] && read -r root_winpid < "/proc/$pid/winpid"
+        [ -z "$root_winpid" ] && root_winpid=$(ps -W 2>/dev/null | awk -v root="$pid" '$1 == root && $4 ~ /^[0-9]+$/ { print $4; exit }')
         tk_args=()
         [ -n "$root_winpid" ] && tk_args+=(//PID "$root_winpid")
-        for wp in $(ps -W 2>/dev/null | awk -v root="$pid" '
+        for descendant_winpid in $(ps -W 2>/dev/null | awk -v root="$pid" '
           NR > 1 && $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ && $4 ~ /^[0-9]+$/ {
             parent[$1] = $2
             winpid[$1] = $4
@@ -144,7 +145,7 @@ case "$cmd" in
             }
           }
         '); do
-          [ "$wp" != "$root_winpid" ] && tk_args+=(//PID "$wp")
+          [ "$descendant_winpid" != "$root_winpid" ] && tk_args+=(//PID "$descendant_winpid")
         done
         if [ ${#tk_args[@]} -gt 0 ]; then
           "$taskkill_cmd" //T //F "${tk_args[@]}" >/dev/null 2>&1 || true
