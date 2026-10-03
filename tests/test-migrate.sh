@@ -516,6 +516,41 @@ else bad "bad flag did not exit 1"; fi
 if [ $? -eq 18 ]; then ok "a missing prerequisite exits 18, not 1"
 else bad "missing prerequisite did not exit 18"; fi
 
+# --- symlink failure without Developer Mode (WinError 1314) exits 19 ----------
+rm -f "$REPO/AGENTS.md"
+[ -f "$REPO/CLAUDE.md" ] || printf '# repo rules\n' > "$REPO/CLAUDE.md"
+OUT="$(python3 - "$MIG" "$H" <<'PYDEV'
+import importlib.util, os, sys
+
+def fake_symlink(src, dst):
+    err = OSError(1314, "A required privilege is not held by the client")
+    err.winerror = 1314
+    raise err
+
+os.symlink = fake_symlink
+
+spec = importlib.util.spec_from_file_location("m", sys.argv[1])
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+
+h = sys.argv[2]
+os.environ["NO_COLOR"] = "1"
+rc = m.main(["--roots", h, "--include-repos", "--only", "claudemd,settings", "--apply"])
+sys.exit(rc)
+PYDEV
+)"; RC=$?
+
+if [ "$RC" -eq 19 ] && has "Developer Mode" "$OUT"; then
+  ok "Developer Mode disabled (WinError 1314) exits 19 and names Developer Mode"
+else bad "symlink WinError 1314 did not exit 19 with Developer Mode message (rc=$RC)"; fi
+if [ ! -e "$REPO/AGENTS.md" ]; then
+  ok "no copy or hardlink fallback created when symlink skipped"
+else bad "created fallback file or symlink despite permission error"; fi
+if has "settings" "$OUT"; then
+  ok "other plan entries still completed when symlink skipped"
+else bad "other plan entries did not complete"; fi
+run --uninstall --apply >/dev/null 2>&1
+
 # --- postprocess_staged: the two repairs the importer makes necessary ---------
 # The plugins unit needs a real agy, but the glue that repairs its output does not:
 # hand-build the exact tree the importer produces and drive the function directly.

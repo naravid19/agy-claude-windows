@@ -47,6 +47,13 @@ mkdir -p "$TMP/py"; export PATH="$TMP/py:$PATH"
 # a one-line edit in one file instead of a hunt through ten string literals. Bumping the
 # flash tier to 3.7 broke four assertions that had the old name baked in, which is what
 # this removes.
+# True on native Windows (Git Bash / MSYS / Cygwin) — NOT WSL.
+on_windows_native() {
+  case "${OSTYPE:-}" in msys*|cygwin*|win32) return 0 ;; esac
+  case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) return 0 ;; esac
+  return 1
+}
+
 tier_default() { # $1 = FLASH | FLASH_LO | PRO
   sed -n "s/.*CLAUDE_PLUGIN_OPTION_TIER_$1:-\\(.*\\)}\".*/\\1/p" "$DELEGATE" | head -1
 }
@@ -2075,6 +2082,43 @@ out=$("$MEDIA" "$MDIR/nope.wav" 2>&1); rc=$?
 check "media missing file -> exit 4" 4 "$rc" "file not found" "$out"
 out=$("$MEDIA" 2>&1); rc=$?
 check "media with no args -> exit 1 (friendly)" 1 "$rc" "no media file given" "$out"
+
+# prompt-embedded paths: on Windows native converted to C:\... form pointing to existing files; elsewhere untouched
+RECORD_FILE="$TMP/media_prompt_recorded.txt"
+rm -f "$RECORD_FILE"
+: > "$MDIR/clip.transcript.md"
+out=$(STUB_RECORD_FILE="$RECORD_FILE" "$MEDIA" "$MDIR/clip.wav" 2>/dev/null); rc=$?
+check "media delegation succeeds with stub agy" 0 "$rc" "" "$out"
+
+if on_windows_native; then
+  if python3 - "$RECORD_FILE" <<'PYPROMPT'
+import os, re, sys
+raw = open(sys.argv[1], encoding="utf-8").read()
+m_abs = re.search(r"Analyze the media file at (.+?)\.\r?\n", raw)
+m_out = re.search(r"Transcript file: ([^\r\n]+)", raw)
+if not m_abs or not m_out:
+    sys.exit(1)
+p_abs = m_abs.group(1).strip()
+p_out = m_out.group(1).strip()
+if not re.match(r"^[A-Za-z]:\\", p_abs) or not re.match(r"^[A-Za-z]:\\", p_out):
+    sys.exit(2)
+if not os.path.isfile(p_abs):
+    sys.exit(3)
+sys.exit(0)
+PYPROMPT
+  then
+    echo "ok: media prompt paths converted to Windows C:\\... format and point to existing files"; PASS=$((PASS+1))
+  else
+    echo "FAIL: media prompt paths not in C:\\... format or file does not exist"; FAIL=$((FAIL+1))
+  fi
+else
+  if grep -q "Analyze the media file at $MDIR/clip.wav\." "$RECORD_FILE" && \
+     grep -q "Transcript file: $MDIR/clip.transcript.md" "$RECORD_FILE"; then
+    echo "ok: media prompt paths untouched on non-Windows"; PASS=$((PASS+1))
+  else
+    echo "FAIL: media prompt paths altered on non-Windows"; FAIL=$((FAIL+1))
+  fi
+fi
 
 echo "== agy-trace.sh (delegation trajectory reader) =="
 TRACE="$ROOT/scripts/agy-trace.sh"

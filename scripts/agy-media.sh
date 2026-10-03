@@ -44,6 +44,13 @@ DELEGATE="${AGY_DELEGATE:-$HERE/agy-delegate.sh}"
 
 FILE=""; FOCUS=""; OUT=""; TIER="pro"; TIMEOUT="15m"; CONVERT=0; PRINT_CMD=0
 
+# True on native Windows (Git Bash / MSYS / Cygwin) — NOT WSL.
+on_windows_native() {
+  case "${OSTYPE:-}" in msys*|cygwin*|win32) return 0 ;; esac
+  case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) return 0 ;; esac
+  return 1
+}
+
 die()   { echo "agy-media: $*" >&2; exit 1; }
 need()  { [ "$1" -ge 2 ] || die "option '$2' needs a value"; }
 usage() { sed -n '/^# Usage:/,/^# Exit codes:/p' "$0" | sed 's/^# \{0,1\}//'; exit 0; }
@@ -133,6 +140,17 @@ fi
 
 # --- build the delegation prompt --------------------------------------------
 # Contract: full transcript -> FILE; only a timestamped digest -> stdout (Claude).
+#
+# On Windows, paths embedded in the prompt text are converted with cygpath -w
+# to C:\... form so native agy can open the media file and write the transcript.
+# Argv flags (--dir) are already converted by MSYS. Non-Windows paths stay untouched.
+PROMPT_ABS="$ABS"
+PROMPT_OUT="$OUT"
+if on_windows_native && command -v cygpath >/dev/null 2>&1; then
+  PROMPT_ABS="$(cygpath -w "$ABS")"
+  PROMPT_OUT="$(cygpath -w "$OUT")"
+fi
+
 IS_VISUAL=0
 case "$EXT" in mp4|mov|webm|png|jpg|jpeg|gif|webp) IS_VISUAL=1 ;; esac
 VISUAL_LINE=""
@@ -144,10 +162,10 @@ fi
 FOCUS_HINT=""
 [ -n "$FOCUS" ] && FOCUS_HINT=" Focus especially on: $FOCUS."
 
-PROMPT="Analyze the media file at $ABS.$FOCUS_HINT
+PROMPT="Analyze the media file at $PROMPT_ABS.$FOCUS_HINT
 
 STEP 1 -- write the full record to a file:
-Write a complete, verbatim transcript to $OUT (create/overwrite it). Every line must start with a [mm:ss] timestamp (use [hh:mm:ss] past an hour). Attribute speakers as Speaker 1/2/... if more than one is audible. Do NOT put the full transcript in your reply.
+Write a complete, verbatim transcript to $PROMPT_OUT (create/overwrite it). Every line must start with a [mm:ss] timestamp (use [hh:mm:ss] past an hour). Attribute speakers as Speaker 1/2/... if more than one is audible. Do NOT put the full transcript in your reply.
 
 STEP 2 -- reply with ONLY a compact digest (no full transcript, no raw dump):
 - SUMMARY: 3-6 sentences on what this is and what matters.
@@ -158,7 +176,7 @@ STEP 2 -- reply with ONLY a compact digest (no full transcript, no raw dump):
 - NOTE any audio that was unclear/inaudible, and any names/numbers you are unsure of, with their [mm:ss] -- do not silently guess.
 Finish with one line: DIGEST: <one-sentence takeaway>.
 
-Transcript file: $OUT"
+Transcript file: $PROMPT_OUT"
 
 # --- delegate ----------------------------------------------------------------
 # --yolo: agy needs tool permission to read the media file and write the transcript.

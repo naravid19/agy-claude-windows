@@ -172,6 +172,7 @@ On classifiable failures the wrapper prints a machine-readable line to stderr:
 | 16 | no working Python 3 (`agy-migrate`, `measure-session`, `agy-trace`) — `python3`, `python` and `py -3` are each tried by running them, so the Windows Store alias stub does not count | install Python 3 (`brew install python3`, your package manager, or python.org); on Windows, turn off the `python3` App execution alias if it opens the Store. `agy-doctor` names the interpreter it found |
 | 17 | one or more migration steps failed (`agy-migrate` only) | read the named steps; the run is still revertible with `agy-migrate --uninstall --apply` |
 | 18 | prerequisite missing (`agy-migrate` only) | no Claude Code config dir; agy has never been run; or `--include-repos` was passed with no `git` on PATH (git is what decides which directories are repositories — install it, or drop the flag) |
+| 19 | Developer Mode disabled on Windows (`agy-migrate` only) — `AGENTS.md` symlink creation failed with WinError 1314 | enable Developer Mode in Windows Settings (Settings -> System -> For developers -> Developer Mode: On) and re-run with `--include-repos --apply`. Other migration units completed successfully; no copy or hardlink fallback was created |
 
 ---
 

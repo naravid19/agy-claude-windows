@@ -21,6 +21,10 @@ Design constraints, all of them learned the hard way from probing agy 1.1.12
     deep, which no modern Claude Code install matches — and it does not follow
     symlinks. It needs no auth, though, so we COPY the real plugins flat into a
     staging HOME, run the native importer there, and repair its output.
+  * Creating an `AGENTS.md` symlink on Windows without Developer Mode fails with
+    WinError 1314. The tool skips the symlink, completes all other units, instructs
+    the user to enable Developer Mode in Windows Settings, and exits 19. It never
+    falls back to copy or hardlink.
 """
 
 import argparse
@@ -606,8 +610,17 @@ def unit_claudemd(plan, mf, roots, include_repos):
             continue
 
         def fn(agents=agents):
-            os.symlink("CLAUDE.md", agents)
-            mf.symlinks.append(agents)
+            try:
+                os.symlink("CLAUDE.md", agents)
+                mf.symlinks.append(agents)
+            except OSError as e:
+                # Windows without Developer Mode raises WinError 1314 (ERROR_PRIVILEGE_NOT_HELD).
+                # Skip the symlink without falling back to copy or hardlink.
+                if (getattr(e, "winerror", None) == 1314
+                        or getattr(e, "errno", None) == 1314
+                        or "1314" in str(e)):
+                    return "skip_dev_mode"
+                raise
 
         plan.add("claudemd", "ok", "symlink", agents, "-> CLAUDE.md", fn)
 
@@ -1607,6 +1620,7 @@ def main(argv=None):
     dest = backup([gemini_config(), agy_settings_path()])
     print(f"\nBackup: {dest}")
     failed = []
+    skipped_dev_mode = []
     try:
         for i in plan.items:
             if i["level"] != "ok" or not i["fn"]:
@@ -1614,12 +1628,27 @@ def main(argv=None):
             try:
                 res = i["fn"]()
             except Exception as e:                       # keep going; report at the end
-                res, e_txt = False, f"{type(e).__name__}: {e}"
-                print(f"  {C['err']}{SYM['err']}{C['off']} {i['action']} {i['target']} — {e_txt}")
+                if i["unit"] == "claudemd" and (
+                    getattr(e, "winerror", None) == 1314
+                    or getattr(e, "errno", None) == 1314
+                    or "1314" in str(e)
+                ):
+                    res = "skip_dev_mode"
+                else:
+                    res, e_txt = False, f"{type(e).__name__}: {e}"
+                    print(f"  {C['err']}{SYM['err']}{C['off']} {i['action']} {i['target']} — {e_txt}")
             else:
-                mark = (C["err"] + SYM["err"]) if res is False else (C["ok"] + SYM["ok"])
-                print(f"  {mark}{C['off']} {i['action']} {i['target']}")
-            if res is False:
+                if res == "skip_dev_mode":
+                    pass
+                elif res is False:
+                    print(f"  {C['err']}{SYM['err']}{C['off']} {i['action']} {i['target']}")
+                else:
+                    print(f"  {C['ok']}{SYM['ok']}{C['off']} {i['action']} {i['target']}")
+
+            if res == "skip_dev_mode":
+                skipped_dev_mode.append(i["target"])
+                print(f"  {C['warn']}{SYM['skip']}{C['off']} {i['action']} {i['target']} — skipped (Developer Mode disabled)")
+            elif res is False:
                 failed.append(f"{i['unit']}/{i['action']}")
             # Saved per step, not once at the end: a crash halfway through must still
             # leave --uninstall able to find everything written so far.
@@ -1637,6 +1666,15 @@ def main(argv=None):
         # 17, not 2: argparse already exits 2 for a bad flag, and the plugin's shared
         # table calls 2 "agy failed". Neither is what happened here.
         return 17
+
+    if skipped_dev_mode:
+        print(f"\n{C['warn']}Notice: {len(skipped_dev_mode)} AGENTS.md symlink(s) skipped because Developer Mode is disabled.{C['off']}")
+        print("To enable symlinks on Windows without administrator privileges, turn on Developer Mode:")
+        print("  Windows Settings -> System -> For developers -> Developer Mode -> On")
+        print("Then re-run: agy-migrate --include-repos --apply")
+        # 19: Developer Mode disabled on Windows; AGENTS.md symlinks skipped, other units completed.
+        return 19
+
     print("\nDone. To revert: agy-migrate --uninstall --apply")
     return 0
 
