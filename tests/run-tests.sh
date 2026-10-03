@@ -100,7 +100,6 @@ has() { case "$2" in *"$1"*) return 0 ;; *) return 1 ;; esac; }
 mkdir -p "$TMP/bin"
 cat > "$TMP/bin/agy" <<'STUB'
 #!/usr/bin/env bash
-[ -n "${STUB_SLEEP:-}" ] && sleep "$STUB_SLEEP"
 # `agy models` emits the slug format agy 1.1.5+ uses (was display names before) so doctor's
 # tier-model check is exercised against the current format.
 if [ "$1" = "models" ]; then
@@ -122,6 +121,27 @@ if [ "$1" = "--help" ]; then
   exit 0
 fi
 
+if [ -n "${STUB_CHILD_PID_FILE:-}" ]; then
+  case "${OSTYPE:-}" in
+    msys*|cygwin*|win32)
+      ping.exe 127.0.0.1 -n 60 >/dev/null 2>&1 &
+      ;;
+    *)
+      case "$(uname -s 2>/dev/null)" in
+        MINGW*|MSYS*|CYGWIN*) ping.exe 127.0.0.1 -n 60 >/dev/null 2>&1 & ;;
+        *) sleep 60 & ;;
+      esac
+      ;;
+  esac
+  _cpid=$!
+  echo "$_cpid" > "$STUB_CHILD_PID_FILE"
+  for _ in 1 2 3 4 5; do
+    [ -f "/proc/$_cpid/winpid" ] && { cat "/proc/$_cpid/winpid" >> "$STUB_CHILD_PID_FILE"; break; }
+    sleep 0.1
+  done
+fi
+[ -n "${STUB_SLEEP:-}" ] && sleep "$STUB_SLEEP"
+
 IS_STREAM=0
 for a in "$@"; do
   [ "$a" = "--input-format" ] && IS_STREAM=1
@@ -132,7 +152,7 @@ if [ -n "${STUB_RECORD_FILE:-}" ]; then
     python3 -c '
 import json, sys
 try:
-    raw = sys.stdin.read()
+    raw = open(0, "r", encoding="utf-8", errors="replace").read()
     for line in raw.splitlines():
         line = line.strip()
         if not line: continue
@@ -2215,12 +2235,62 @@ done
 out=$("$JOB" result "$id" 2>/dev/null); rc=$?
 check "job result -> output when done" 0 "$rc" "STUB_OK" "$out"
 
-cid=$(STUB_MODE=text STUB_SLEEP=10 "$JOB" start --tier flash "long task" 2>/dev/null)
-sleep 0.5; "$JOB" cancel "$cid" >/dev/null 2>&1; sleep 0.5
+child_pid_file="$TMP/job-cancel-child-pid"
+rm -f "$child_pid_file"
+cid=$(STUB_MODE=text STUB_SLEEP=10 STUB_CHILD_PID_FILE="$child_pid_file" "$JOB" start --tier flash "long task" 2>/dev/null)
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25; do
+  if [ -s "$child_pid_file" ]; then
+    case "${OSTYPE:-}" in
+      msys*|cygwin*|win32) [ "$(wc -l < "$child_pid_file" 2>/dev/null || echo 0)" -ge 2 ] && break ;;
+      *) break ;;
+    esac
+  fi
+  sleep 0.2
+done
+c_out=$("$JOB" cancel "$cid" 2>&1); c_rc=$?
+check "job cancel -> exit 0" 0 "$c_rc"
+if grep -q "cancelled $cid" <<<"$c_out"; then
+  echo "ok: job cancel reports cancelled <id>"; PASS=$((PASS+1))
+else
+  echo "FAIL: job cancel output unexpected: $c_out"; FAIL=$((FAIL+1))
+fi
+sleep 0.5
 out=$("$JOB" status "$cid" 2>/dev/null)
 if grep -q "state=running" <<<"$out"; then
   echo "FAIL: job cancel (still running)"; FAIL=$((FAIL+1))
 else echo "ok: job cancel stops it"; PASS=$((PASS+1)); fi
+
+child_alive=0
+if [ -s "$child_pid_file" ]; then
+  read -r c_mpid < "$child_pid_file"
+  c_winpid=$(sed -n '2p' "$child_pid_file")
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    child_alive=0
+    if [ -n "$c_winpid" ]; then
+      if ps -W 2>/dev/null | awk '{print $4}' | grep -qx "$c_winpid"; then
+        child_alive=1
+      fi
+    elif [ -n "$c_mpid" ] && kill -0 "$c_mpid" 2>/dev/null; then
+      child_alive=1
+    fi
+    [ "$child_alive" -eq 0 ] && break
+    sleep 0.3
+  done
+fi
+if [ "$child_alive" -eq 1 ]; then
+  echo "FAIL: job cancel left child process running (winpid=${c_winpid:-}, mpid=${c_mpid:-})"; FAIL=$((FAIL+1))
+  [ -n "${c_winpid:-}" ] && taskkill //F //PID "$c_winpid" >/dev/null 2>&1 || true
+else
+  echo "ok: job cancel killed native process tree"; PASS=$((PASS+1))
+fi
+
+c_idle=$("$JOB" cancel "$cid" 2>&1); c_rc=$?
+check "job cancel already stopped -> exit 0" 0 "$c_rc"
+if [ "$c_idle" = "not running" ]; then
+  echo "ok: job cancel on stopped job prints 'not running'"; PASS=$((PASS+1))
+else
+  echo "FAIL: job cancel on stopped job output unexpected: $c_idle"; FAIL=$((FAIL+1))
+fi
 
 # structured exit code surfaces through the job layer (quota -> rc 10 + label + signal)
 qid=$(STUB_MODE=quota "$JOB" start --tier flash "quota task" 2>/dev/null)

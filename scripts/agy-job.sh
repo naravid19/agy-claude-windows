@@ -21,6 +21,13 @@ REG="${ANTIGRAVITY_JOBS:-$HOME/.antigravity-jobs}"
 
 die() { echo "agy-job: $*" >&2; exit 1; }
 
+# True on native Windows (Git Bash / MSYS / Cygwin) — NOT WSL.
+on_windows_native() {
+  case "${OSTYPE:-}" in msys*|cygwin*|win32) return 0 ;; esac
+  case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) return 0 ;; esac
+  return 1
+}
+
 # resolve a (possibly abbreviated) id to a job dir
 jobdir() {
   [ -n "${1:-}" ] || die "need a job id"
@@ -111,8 +118,37 @@ case "$cmd" in
     jd="$(jobdir "${1:-}")"
     pid="$(cat "$jd/pid" 2>/dev/null || true)"
     if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-      pkill -P "$pid" 2>/dev/null || true   # children (agy) first
-      kill "$pid" 2>/dev/null || true
+      if on_windows_native; then
+        tk="taskkill"
+        command -v taskkill >/dev/null 2>&1 || [ ! -x "/c/Windows/System32/taskkill.exe" ] || tk="/c/Windows/System32/taskkill.exe"
+        winpids=$(ps -W 2>/dev/null | awk -v root="$pid" '
+          NR > 1 && $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ && $4 ~ /^[0-9]+$/ {
+            parent[$1] = $2
+            winpid[$1] = $4
+          }
+          END {
+            for (p in parent) {
+              curr = p
+              while (curr != 0 && curr != "" && curr != parent[curr]) {
+                if (curr == root) {
+                  if (winpid[p] != "") print winpid[p]
+                  break
+                }
+                curr = parent[curr]
+              }
+            }
+          }
+        ')
+        root_wp=""
+        [ -f "/proc/$pid/winpid" ] && root_wp="$(cat "/proc/$pid/winpid" 2>/dev/null || true)"
+        for wp in $winpids $root_wp; do
+          "$tk" //T //F //PID "$wp" >/dev/null 2>&1 || true
+        done
+        kill "$pid" 2>/dev/null || true
+      else
+        pkill -P "$pid" 2>/dev/null || true   # children (agy) first
+        kill "$pid" 2>/dev/null || true
+      fi
       echo "cancelled $(basename "$jd")"
     else
       echo "not running"
