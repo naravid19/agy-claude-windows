@@ -1509,17 +1509,17 @@ echo "== doctor.sh Windows checks (Git Bash, agy >= 1.2.11, Python) =="
 win_doctor() { # $1 = agy version, $2 = uname -s output (default MINGW64_NT-10.0)
   local d; d="$TMP/windoctor"; mkdir -p "$d"
   local ver="${1:-1.2.11}"
-  local un="${2:-MINGW64_NT-10.0}"
+  local uname_s="${2:-MINGW64_NT-10.0}"
   { echo '#!/usr/bin/env bash'
     echo "[ \"\$1\" = --version ] && { echo '$ver'; exit 0; }"
     echo "[ \"\$1\" = models ] && { printf '%s\\n' '$DEF_FLASH' '$DEF_FLASH_LO' '$DEF_PRO'; exit 0; }"
     echo 'exit 0'; } > "$d/agy"
   chmod +x "$d/agy"
   { echo '#!/usr/bin/env bash'
-    echo "if [ \"\$1\" = -s ]; then echo '$un'; else echo '$un'; fi"
+    echo "echo '$uname_s'"
     echo 'exit 0'; } > "$d/uname"
   chmod +x "$d/uname"
-  OS="Windows_NT" PATH="$d:$PATH" bash "$ROOT/scripts/doctor.sh" 2>&1
+  PATH="$d:$PATH" bash "$ROOT/scripts/doctor.sh" 2>&1
 }
 
 # On Windows, agy 1.2.10 produces the upgrade warning and 1.2.11 does not
@@ -1550,6 +1550,12 @@ if has 'not running under Git Bash' "$nongit_out" && has 'Git Bash' "$nongit_out
   echo "ok: a non-Git-Bash shell produces the Git Bash requirement message"; PASS=$((PASS+1));
 else echo "FAIL: a non-Git-Bash shell did not produce the Git Bash requirement message"; FAIL=$((FAIL+1)); fi
 
+# OS=Windows_NT environment variable (common in WSL interop) does not falsely trigger Windows checks
+wsl_out="$(OS="Windows_NT" win_doctor 1.2.11 "Linux")"
+if has 'Git Bash' "$wsl_out"; then
+  echo "FAIL: OS=Windows_NT falsely triggered Git Bash check under Linux"; FAIL=$((FAIL+1));
+else echo "ok: OS=Windows_NT does not trigger Windows checks under Linux"; PASS=$((PASS+1)); fi
+
 # Static check: ensure no active docs or scripts recommend WSL or ConPTY for Windows
 if grep -rnEi 'needs (a )?(real )?console \(ConPTY\)|run delegation from WSL|use WSL \(fully supported\)|prefer WSL' \
    "$ROOT/scripts/doctor.sh" "$ROOT/scripts/agy-delegate.sh" "$ROOT/README.md" "$ROOT/docs/TROUBLESHOOTING.md" >/dev/null; then
@@ -1572,13 +1578,13 @@ if on_windows_native; then
 fi
 
 # Doctor fails when no working Python is available
-dnopy="$TMP/windoctor_nopy"; mkdir -p "$dnopy"
-{ echo '#!/usr/bin/env bash'; echo 'exit 49'; } > "$dnopy/python3"
-{ echo '#!/usr/bin/env bash'; echo 'exit 49'; } > "$dnopy/python"
-{ echo '#!/usr/bin/env bash'; echo 'exit 49'; } > "$dnopy/py"
-chmod +x "$dnopy/python3" "$dnopy/python" "$dnopy/py"
+nopy_dir="$TMP/windoctor_nopy"; mkdir -p "$nopy_dir"
+for cmd in python3 python py; do
+  printf '#!/usr/bin/env bash\nexit 49\n' > "$nopy_dir/$cmd"
+  chmod +x "$nopy_dir/$cmd"
+done
 nopy_rc=0
-nopy_out="$(PATH="$dnopy:$PATH" bash "$ROOT/scripts/doctor.sh" 2>&1)" || nopy_rc=$?
+nopy_out="$(PATH="$nopy_dir:$PATH" bash "$ROOT/scripts/doctor.sh" 2>&1)" || nopy_rc=$?
 if [ "$nopy_rc" -eq 1 ] && has 'no working Python 3' "$nopy_out" && has 'Some checks failed' "$nopy_out"; then
   echo "ok: no working Python makes doctor fail"; PASS=$((PASS+1));
 else echo "FAIL: no working Python did not fail doctor as expected (rc=$nopy_rc)"; FAIL=$((FAIL+1)); fi

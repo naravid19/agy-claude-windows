@@ -254,17 +254,11 @@ ver_lt() {
   return 1                            # equal is not older
 }
 
-# True on Windows (native Windows or Windows environment)
+# True on native Windows (Git Bash/MSYS/Cygwin), NOT WSL.
 on_windows() {
   case "${OSTYPE:-}" in msys*|cygwin*|win32) return 0 ;; esac
   case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) return 0 ;; esac
-  [ "${OS:-}" = "Windows_NT" ] && return 0
   return 1
-}
-
-# True on native Windows (Git Bash/MSYS/Cygwin), NOT WSL.
-on_windows_native() {
-  on_windows "$@"
 }
 
 # True when running under Git Bash (MSYS/MinGW bash from Git for Windows)

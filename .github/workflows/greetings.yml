@@ -26,7 +26,7 @@ jobs:
 
             agy changes behaviour every few releases, so to reproduce anything we need three things. If they are not in the report yet, please add them:
 
-            - `agy --version` and your OS (macOS / Linux / Windows with Git Bash / WSL)
+            - `agy --version` and your OS (macOS / Linux / WSL — native Windows is not supported for headless delegation)
             - the exact command you ran (for example `agy-delegate --tier flash --dir . "..."`) and its stderr — the `AGY_SIGNAL` and `AGY_USAGE` lines matter
             - what you expected and what happened instead
 
