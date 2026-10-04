@@ -78,7 +78,16 @@ In Claude Code:
 
 **Prerequisites:** the [Antigravity CLI](https://antigravity.google/docs/cli-using) (`agy`) installed & authenticated (`agy models` lists Gemini models), and Claude Code. For the same-bill cost benefit, run Claude Code on Vertex too.
 
-**Platform support:** macOS, Linux, and **WSL** are the supported targets for headless delegation. **Native Windows (Git Bash/MSYS) is not recommended** — `agy -p` can hang with a 0-byte log when run without a real console (ConPTY); see [issue #6](https://github.com/yuting0624/antigravity-for-claude-code/issues/6). The wrapper now bounds this with a wall-clock guard (GNU `timeout`/`gtimeout`, returning a clean TIMEOUT instead of hanging), and `doctor` distinguishes a hang from an auth failure — but for reliable headless use, run from **WSL/macOS/Linux**.
+**Platform support:** macOS, Linux, and **Windows (Git Bash)** are supported targets for headless delegation, as well as WSL. On Windows, agy ≥ 1.2.11 is required (no WSL or ConPTY bridge needed). See [Windows requirements](#-windows-requirements) below.
+
+### 🪟 Windows requirements
+
+On native Windows, the plugin runs directly under **Git Bash** with agy ≥ 1.2.11 (see ADR-0001):
+
+- **Git Bash:** Git for Windows is required. Claude Code executes hooks and the Bash tool through Git Bash.
+- **agy ≥ 1.2.11:** Headless delegation without a console requires Antigravity CLI 1.2.11 or later (`agy update`). Older versions could hang without a console.
+- **Working Python:** A working Python 3 installation (`python3`, `python`, or `py -3`). If `python3` opens the Microsoft Store, disable its App execution alias in Windows Settings > Apps > Advanced app settings > App execution aliases.
+- **Claude Code plugin `bin/` PATH bug:** Claude Code on Windows currently does not place plugin `bin/` directories on the Bash tool's `PATH`. In this fork, all tool references use `"${CLAUDE_PLUGIN_ROOT}/bin/<tool>"` (or slash commands).
 
 ## 🧩 Slash commands
 
@@ -271,7 +280,7 @@ Delegation doesn't save money by itself — these do (also in the skill):
   was reported *not* to match. Either way: run write tasks on a branch and verify with
   `git status`; the wrapper maps both denial shapes — the soft one (agy 1.1.3+, and again
   from 1.1.20; re-measured on 1.1.25) and 1.1.13's hard error — to exit `15`.
-- **Native Windows (no ConPTY):** headless `agy -p` / `agy models` can hard-hang with a 0-byte log when stdio is redirected ([issue #6](https://github.com/yuting0624/antigravity-for-claude-code/issues/6)). The wrapper wraps agy in a wall-clock `timeout`/`gtimeout` guard so it returns a structured TIMEOUT (exit 12) instead of hanging; `doctor` reports the likely hang instead of a misleading "not authenticated". Without `timeout` on PATH there's no safety net — use **WSL/macOS/Linux** for headless delegation.
+- **Windows (Git Bash):** headless `agy -p` runs natively without a console on agy ≥ 1.2.11. On older agy builds (< 1.2.11) it could hang with a 0-byte log; `doctor` warns and suggests `agy update`. The wrapper protects with a wall-clock `timeout` guard.
 - **WSL:** running agy with `--add-dir` on a Windows mount (`/mnt/c/...`) is very slow — agy reads the workspace over a 9p bridge, so even trivial calls can take 20s+. Keep the repo on the WSL Linux filesystem (`~`). The wrapper and `doctor` warn about this.
 
 </details>

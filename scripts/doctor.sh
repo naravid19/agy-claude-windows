@@ -254,10 +254,25 @@ ver_lt() {
   return 1                            # equal is not older
 }
 
-# True on native Windows (Git Bash/MSYS/Cygwin), NOT WSL — where headless agy hangs.
-on_windows_native() {
+# True on Windows (native Windows or Windows environment)
+on_windows() {
   case "${OSTYPE:-}" in msys*|cygwin*|win32) return 0 ;; esac
   case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) return 0 ;; esac
+  [ "${OS:-}" = "Windows_NT" ] && return 0
+  return 1
+}
+
+# True on native Windows (Git Bash/MSYS/Cygwin), NOT WSL.
+on_windows_native() {
+  on_windows "$@"
+}
+
+# True when running under Git Bash (MSYS/MinGW bash from Git for Windows)
+is_git_bash() {
+  case "$(uname -s 2>/dev/null)" in
+    MINGW*) return 0 ;;
+  esac
+  [ -n "${GIT_INSTALL_ROOT:-}" ] && return 0
   return 1
 }
 
@@ -284,6 +299,11 @@ if command -v agy >/dev/null 2>&1; then
         info "so --tier / tier_* remaps do NOT take effect — every delegation silently runs"
         info "your persisted default model instead, and nothing in the output says so."
         info "fix: \`agy update\` to 1.1.10 or newer."
+      fi
+      if on_windows && ver_lt "$AGY_VER" 1.2.11; then
+        warn "agy $AGY_VER is below 1.2.11 — headless delegation on Windows requires agy >= 1.2.11"
+        info "older versions can hang or fail when run without a console."
+        info "fix: \`agy update\` to 1.2.11 or newer."
       fi ;;
   esac
 else
@@ -330,10 +350,10 @@ if command -v agy >/dev/null 2>&1; then
       info "check the agy log for a server that never reports ready, or disable them temporarily to confirm the cause."
     fi
     info "agy hangs when run headless with no TTY/console (0-byte log, no output)."
-    if on_windows_native; then
-      info "native Windows: agy needs a real console (ConPTY). Run delegation from WSL/macOS/Linux."
+    if on_windows; then
+      info "on Windows, agy < 1.2.11 can hang headless without a console; update to agy >= 1.2.11."
     else
-      info "check whether agy is being invoked without a console; prefer WSL/macOS/Linux for headless delegation."
+      info "check whether agy is being invoked without a console; update agy or check for hanging background processes."
     fi
     info "(your credentials are likely fine — don't re-authenticate based on this.)"
     MODELS=""
@@ -480,6 +500,16 @@ if grep -qi microsoft /proc/version 2>/dev/null || [ -n "${WSL_DISTRO_NAME:-}" ]
       info "fix: move the repo into the WSL Linux filesystem (e.g. ~/projects) for ~10x faster I/O" ;;
     *) ok "WSL detected; workspace is on the Linux filesystem" ;;
   esac
+fi
+
+# 4d. Windows: running under Git Bash
+if on_windows; then
+  if is_git_bash; then
+    ok "running under Git Bash"
+  else
+    warn "not running under Git Bash"
+    info "fix: native Windows requires Git Bash (Git for Windows); other shells are unsupported"
+  fi
 fi
 
 # 5. plugin version

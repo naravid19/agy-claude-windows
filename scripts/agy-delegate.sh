@@ -192,9 +192,7 @@ model_for_tier() {
 # True when running under WSL (Windows Subsystem for Linux).
 on_wsl() { [ -n "${WSL_DISTRO_NAME:-}" ] || grep -qi microsoft /proc/version 2>/dev/null; }
 
-# True on native Windows (Git Bash / MSYS / Cygwin) — NOT WSL. On native Windows
-# without a real console (ConPTY), agy v1.0.x can hard-hang with a 0-byte log when
-# its stdio is redirected (the issue this wall-clock guard defends against).
+# True on native Windows (Git Bash / MSYS / Cygwin) — NOT WSL.
 on_windows_native() {
   case "${OSTYPE:-}" in msys*|cygwin*|win32) return 0 ;; esac
   case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) return 0 ;; esac
@@ -444,8 +442,8 @@ ERR="$(mktemp "${TMPDIR:-/tmp}/agy-delegate.XXXXXX")"
 OUTF="$(mktemp "${TMPDIR:-/tmp}/agy-out.XXXXXX")"
 
 # Wall-clock guard: on a non-TTY caller (the whole point of this wrapper), agy can
-# hard-hang before its own --print-timeout engages (notably native Windows without
-# a ConPTY — see issue #6). Wrap in GNU `timeout`/`gtimeout` when available so we
+# hard-hang before its own --print-timeout engages (notably older agy builds on Windows
+# without a console — see issue #6). Wrap in GNU `timeout`/`gtimeout` when available so we
 # always return instead of hanging forever. `timeout` exits 124 on kill -> map to
 # our TIMEOUT (12) and emit the structured signal, so orchestrators react cleanly.
 TO_SECS="$(outer_timeout_secs "$TIMEOUT")"
@@ -453,8 +451,7 @@ TO_SECS="$(outer_timeout_secs "$TIMEOUT")"
 if on_windows_native && [ -z "$TO_CMD" ]; then
   # Native Windows + no timeout binary = highest hang risk with no safety net.
   echo "agy-delegate: WARNING — native Windows without GNU \`timeout\`/\`gtimeout\` on PATH." >&2
-  echo "agy-delegate:   headless \`agy -p\` can hang here with a 0-byte log (no ConPTY). If this" >&2
-  echo "agy-delegate:   call never returns, run from WSL/macOS/Linux, or install coreutils \`timeout\`." >&2
+  echo "agy-delegate:   install coreutils \`timeout\` (available in Git Bash) for hang protection." >&2
 fi
 
 if [ "$STREAM_MODE" -eq 1 ]; then
@@ -618,11 +615,11 @@ fi
 # `timeout` exits 124 (SIGTERM) or 137 (SIGKILL after --kill-after) when it had to
 # kill agy. Treat that as our structured TIMEOUT (exit 12), not a generic failure.
 if [ -n "$TO_CMD" ] && { [ $RC -eq 124 ] || [ $RC -eq 137 ]; }; then
-  echo "agy-delegate: agy hit the wall-clock guard (${TO_SECS}s) and was terminated — likely a headless/no-TTY hang." >&2
+  echo "agy-delegate: agy hit the wall-clock guard (${TO_SECS}s) and was terminated — likely a hang." >&2
   if on_windows_native; then
-    echo "agy-delegate:   native Windows: agy needs a console (ConPTY); run delegation from WSL/macOS/Linux." >&2
+    echo "agy-delegate:   on Windows, verify agy is >= 1.2.11 and check for hanging MCP servers." >&2
   fi
-  signal TIMEOUT "agy wall-clock guard fired after ${TO_SECS}s (headless/no-TTY hang?)"
+  signal TIMEOUT "agy wall-clock guard fired after ${TO_SECS}s (headless hang?)"
   exit 12
 fi
 

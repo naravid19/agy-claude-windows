@@ -23,27 +23,19 @@ model runs, so marketplace installs saw an empty path ([#11](https://github.com/
 
 ---
 
-## Windows: delegation hangs, or exits 12 (TIMEOUT) with a 0-byte log
+## Windows: requirements and delegation hangs
 
-**Cause (upstream, not the plugin):** on native Windows, headless `agy` needs a real
-console (ConPTY). When the plugin runs it as a child process with redirected stdio there
-is no console, and agy v1.0.x can hard-hang before producing any output
-([#6](https://github.com/yuting0624/antigravity-for-claude-code/issues/6)).
+Native Windows is supported directly through Git Bash with **agy ≥ 1.2.11**. No WSL or ConPTY bridge is required (ADR-0001).
 
-**"But agy works when I type it in my terminal!"** — yes: typed directly, agy has a real
-console (interactive mode). Invoked by the plugin, it runs headless (no console). That's
-the difference, not Windows vs the plugin.
+**Windows requirements:**
+1. **Git Bash:** Git for Windows provides the bash environment Claude Code's Bash tool and hooks run in.
+2. **agy ≥ 1.2.11:** Older agy versions (< 1.2.11) could hard-hang without a console when stdio was redirected ([#6](https://github.com/yuting0624/antigravity-for-claude-code/issues/6)). On agy ≥ 1.2.11, headless `agy -p` runs cleanly without a console. Run `agy update` if you are on an older version.
+3. **Working Python 3:** The plugin automatically detects `python3`, `python`, or `py -3`. If the Microsoft Store alias stub is intercepting `python3`, disable it in Windows Settings > Apps > Advanced app settings > App execution aliases.
+4. **Claude Code plugin `bin/` PATH bug:** Claude Code on Windows does not place plugin `bin/` directories on PATH. Invocation uses `"${CLAUDE_PLUGIN_ROOT}/bin/<tool>"`.
 
-What the plugin does about it: a wall-clock guard (`timeout`/`gtimeout`) turns the hang
-into a clean **TIMEOUT (exit 12)** instead of a freeze, and `agy-doctor` reports "headless
-hang" instead of the misleading "not authenticated".
-
-**Fix: use WSL** (fully supported):
-1. `wsl --install` (one-time; reboot)
-2. Install Claude Code **and** the Antigravity CLI *inside* WSL; authenticate agy there
-   (`agy models` should list models)
-3. Keep your repo on the WSL Linux filesystem (`~/project`), **not** `/mnt/c/...`
-4. Run `/antigravity:setup` from WSL — it should go green
+**If delegation still hangs:**
+- Ensure agy is updated (`agy update` to ≥ 1.2.11).
+- Check for hanging stdio MCP servers (run `"${CLAUDE_PLUGIN_ROOT}/bin/agy-doctor"` to inspect configured MCP servers).
 
 ---
 

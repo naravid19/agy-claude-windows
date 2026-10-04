@@ -1503,6 +1503,86 @@ if has 'ignores --model' "$nosort_out"; then
   echo "ok: the warning still fires with sort unusable"; PASS=$((PASS+1));
 else echo "FAIL: a broken sort silences the version gate"; FAIL=$((FAIL+1)); fi
 
+echo "== doctor.sh Windows checks (Git Bash, agy >= 1.2.11, Python) =="
+# On Windows, doctor checks that it runs under Git Bash and that agy >= 1.2.11.
+# On Linux/macOS, non-Windows doctor output is unchanged.
+win_doctor() { # $1 = agy version, $2 = uname -s output (default MINGW64_NT-10.0)
+  local d; d="$TMP/windoctor"; mkdir -p "$d"
+  local ver="${1:-1.2.11}"
+  local un="${2:-MINGW64_NT-10.0}"
+  { echo '#!/usr/bin/env bash'
+    echo "[ \"\$1\" = --version ] && { echo '$ver'; exit 0; }"
+    echo "[ \"\$1\" = models ] && { printf '%s\\n' '$DEF_FLASH' '$DEF_FLASH_LO' '$DEF_PRO'; exit 0; }"
+    echo 'exit 0'; } > "$d/agy"
+  chmod +x "$d/agy"
+  { echo '#!/usr/bin/env bash'
+    echo "if [ \"\$1\" = -s ]; then echo '$un'; else echo '$un'; fi"
+    echo 'exit 0'; } > "$d/uname"
+  chmod +x "$d/uname"
+  OS="Windows_NT" PATH="$d:$PATH" bash "$ROOT/scripts/doctor.sh" 2>&1
+}
+
+# On Windows, agy 1.2.10 produces the upgrade warning and 1.2.11 does not
+if has 'below 1.2.11' "$(win_doctor 1.2.10)"; then
+  echo "ok: on Windows, agy 1.2.10 produces the upgrade warning"; PASS=$((PASS+1));
+else echo "FAIL: on Windows, no upgrade warning on agy 1.2.10"; FAIL=$((FAIL+1)); fi
+
+if has 'below 1.2.11' "$(win_doctor 1.2.11)"; then
+  echo "FAIL: on Windows, doctor warns on 1.2.11"; FAIL=$((FAIL+1));
+else echo "ok: on Windows, no upgrade warning on agy 1.2.11"; PASS=$((PASS+1)); fi
+
+# Non-Windows doctor output is unchanged: no 1.2.11 warning, no Git Bash line
+if ! on_windows_native; then
+  nw_out="$(ver_doctor 1.2.10)"
+  if has 'below 1.2.11' "$nw_out" || has 'Git Bash' "$nw_out"; then
+    echo "FAIL: non-Windows doctor output changed with Windows warning"; FAIL=$((FAIL+1));
+  else echo "ok: non-Windows doctor output is unchanged"; PASS=$((PASS+1)); fi
+fi
+
+# Under Git Bash, doctor confirms Git Bash
+if has 'running under Git Bash' "$(win_doctor 1.2.11)" && ! has 'not running under Git Bash' "$(win_doctor 1.2.11)"; then
+  echo "ok: doctor detects Git Bash on Windows"; PASS=$((PASS+1));
+else echo "FAIL: doctor did not detect Git Bash on Windows"; FAIL=$((FAIL+1)); fi
+
+# A non-Git-Bash shell produces the Git Bash requirement message
+nongit_out="$(win_doctor 1.2.11 "CYGWIN_NT-10.0")"
+if has 'not running under Git Bash' "$nongit_out" && has 'Git Bash' "$nongit_out"; then
+  echo "ok: a non-Git-Bash shell produces the Git Bash requirement message"; PASS=$((PASS+1));
+else echo "FAIL: a non-Git-Bash shell did not produce the Git Bash requirement message"; FAIL=$((FAIL+1)); fi
+
+# Static check: ensure no active docs or scripts recommend WSL or ConPTY for Windows
+if grep -rnEi 'needs (a )?(real )?console \(ConPTY\)|run delegation from WSL|use WSL \(fully supported\)|prefer WSL' \
+   "$ROOT/scripts/doctor.sh" "$ROOT/scripts/agy-delegate.sh" "$ROOT/README.md" "$ROOT/docs/TROUBLESHOOTING.md" >/dev/null; then
+  echo "FAIL: stale WSL or ConPTY recommendation found in docs/scripts"; FAIL=$((FAIL+1));
+else echo "ok: no stale WSL or ConPTY recommendation in docs/scripts"; PASS=$((PASS+1)); fi
+
+# When running on native Windows (real environment), also verify native behavior
+if on_windows_native; then
+  if has 'below 1.2.11' "$(ver_doctor 1.2.10)"; then
+    echo "ok: on native Windows, agy 1.2.10 produces the upgrade warning"; PASS=$((PASS+1));
+  else echo "FAIL: on native Windows, no upgrade warning on agy 1.2.10"; FAIL=$((FAIL+1)); fi
+
+  if has 'below 1.2.11' "$(ver_doctor 1.2.11)"; then
+    echo "FAIL: on native Windows, doctor warns on 1.2.11"; FAIL=$((FAIL+1));
+  else echo "ok: on native Windows, no upgrade warning on agy 1.2.11"; PASS=$((PASS+1)); fi
+
+  if has 'running under Git Bash' "$(ver_doctor 1.2.11)"; then
+    echo "ok: on native Windows, doctor reports running under Git Bash"; PASS=$((PASS+1));
+  else echo "FAIL: on native Windows, doctor did not report Git Bash"; FAIL=$((FAIL+1)); fi
+fi
+
+# Doctor fails when no working Python is available
+dnopy="$TMP/windoctor_nopy"; mkdir -p "$dnopy"
+{ echo '#!/usr/bin/env bash'; echo 'exit 49'; } > "$dnopy/python3"
+{ echo '#!/usr/bin/env bash'; echo 'exit 49'; } > "$dnopy/python"
+{ echo '#!/usr/bin/env bash'; echo 'exit 49'; } > "$dnopy/py"
+chmod +x "$dnopy/python3" "$dnopy/python" "$dnopy/py"
+nopy_rc=0
+nopy_out="$(PATH="$dnopy:$PATH" bash "$ROOT/scripts/doctor.sh" 2>&1)" || nopy_rc=$?
+if [ "$nopy_rc" -eq 1 ] && has 'no working Python 3' "$nopy_out" && has 'Some checks failed' "$nopy_out"; then
+  echo "ok: no working Python makes doctor fail"; PASS=$((PASS+1));
+else echo "FAIL: no working Python did not fail doctor as expected (rc=$nopy_rc)"; FAIL=$((FAIL+1)); fi
+
 echo "== embedded python is not cut short by a quote =="
 # A single quote inside `python3 -c '...'` closes the shell string. What follows is parsed
 # by bash as arguments and redirections — valid shell, so `bash -n` and shellcheck both
