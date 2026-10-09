@@ -13,8 +13,9 @@ inside structured config (hooks/MCP) — it is **not** exported to the shell com
 model runs, so marketplace installs saw an empty path ([#11](https://github.com/yuting0624/antigravity-for-claude-code/issues/11),
 [#15](https://github.com/yuting0624/antigravity-for-claude-code/issues/15)).
 
-**Fix:** update — since 0.14.0 everything is invoked by bare names (`agy-delegate`,
-`agy-job`, `agy-doctor`, `agy-cost-compare`) on the plugin's `bin/` PATH:
+**Fix:** update — since 0.14.0 the tools live in the plugin's `bin/` (`agy-delegate`,
+`agy-job`, `agy-doctor`, `agy-cost-compare`), and commands call them as
+`"${CLAUDE_PLUGIN_ROOT}/bin/<tool>"` so they do not depend on `bin/` being on PATH:
 
 ```
 /plugin marketplace update antigravity-for-claude-code

@@ -1004,6 +1004,14 @@ check "inject-policy is cost-aware (not 'delegate everything')" 0 "$rc" "COST-AW
 printf '%s' "$out" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["hookSpecificOutput"]["hookEventName"]=="SessionStart"' 2>/dev/null; rc=$?
 check "inject-policy emits valid SessionStart JSON" 0 "$rc"
 
+# On native Windows no plugin bin/ is on PATH (ADR 0003), so the injected "Call:" line
+# names the tool by absolute path; elsewhere the bare name is unchanged.
+out=$(OSTYPE=msys "$HOOKS/inject-policy.sh" 2>/dev/null); rc=$?
+check "inject-policy on Windows names agy-delegate by absolute path" 0 "$rc" "/bin/agy-delegate" "$out"
+python3 -c 'import json,sys; json.loads(sys.stdin.read())' <<<"$out" 2>/dev/null; rc=$?
+check "inject-policy on Windows still emits valid JSON" 0 "$rc"
+out=$(OSTYPE=linux-gnu "$HOOKS/inject-policy.sh" 2>/dev/null); rc=$?
+check "inject-policy off Windows keeps the bare name" 0 "$rc" 'Call: `agy-delegate`' "$out"
 out=$(CLAUDE_PLUGIN_OPTION_CODING_POLICY=off "$HOOKS/inject-policy.sh" 2>/dev/null); rc=$?
 if [ "$rc" = 0 ] && [ -z "$out" ]; then echo "ok: inject-policy off -> exit 0 + no output"; PASS=$((PASS+1));
 else echo "FAIL: inject-policy off (rc=$rc, out='${out:0:40}')"; FAIL=$((FAIL+1)); fi

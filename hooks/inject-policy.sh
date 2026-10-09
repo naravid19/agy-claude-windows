@@ -16,5 +16,15 @@ case "$raw" in
   off|false|0|no|disabled) exit 0 ;;
 esac
 
-cat "$HERE/policy-context.json"
+# On native Windows no plugin bin/ is on the Bash tool's PATH (Claude Code bug), so the
+# injected "Call:" line names the tool by absolute path; elsewhere it stays the bare name.
+# The path is resolved here, not written as $CLAUDE_PLUGIN_ROOT, which model-run Bash lacks.
+call="agy-delegate"
+case "${OSTYPE:-}" in
+  # Quoted (the path may hold spaces); the \" is the JSON escape, as this is spliced into a string.
+  msys*|cygwin*|win32) call="\\\"$(cd "$HERE/.." && pwd)/bin/agy-delegate\\\"" ;;
+esac
+policy="$(cat "$HERE/policy-context.json")"
+printf '%s
+' "${policy//@@AGY_DELEGATE@@/$call}"
 exit 0

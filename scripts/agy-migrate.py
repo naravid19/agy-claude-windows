@@ -1647,6 +1647,13 @@ def main(argv=None):
                         "failed": failed})
         mf.save()
 
+    # Printed before the failure return, so a failed step cannot hide the notice.
+    if skipped_dev_mode:
+        print(f"\n{C['warn']}Notice: {len(skipped_dev_mode)} AGENTS.md symlink(s) skipped because Developer Mode is disabled.{C['off']}")
+        print("To enable symlinks on Windows without administrator privileges, turn on Developer Mode:")
+        print("  Windows Settings -> System -> For developers -> Developer Mode -> On")
+        print("Then re-run: agy-migrate --include-repos --apply")
+
     if failed:
         print(f"\n{C['err']}{len(failed)} step(s) failed:{C['off']} {', '.join(failed)}")
         print(f"Everything that did succeed is tracked; "
@@ -1657,10 +1664,6 @@ def main(argv=None):
         return 17
 
     if skipped_dev_mode:
-        print(f"\n{C['warn']}Notice: {len(skipped_dev_mode)} AGENTS.md symlink(s) skipped because Developer Mode is disabled.{C['off']}")
-        print("To enable symlinks on Windows without administrator privileges, turn on Developer Mode:")
-        print("  Windows Settings -> System -> For developers -> Developer Mode -> On")
-        print("Then re-run: agy-migrate --include-repos --apply")
         # 19: Developer Mode disabled on Windows; AGENTS.md symlinks skipped, other units completed.
         return 19
 

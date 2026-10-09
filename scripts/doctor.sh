@@ -477,8 +477,8 @@ for h in check-agy.sh inject-policy.sh validate-delegate-bash.sh nudge-delegatio
   fi
 done
 
-# 4b2. bin/ entrypoints executable (added to the Bash-tool PATH; commands/skills call
-#      these bare names — $CLAUDE_PLUGIN_ROOT is not exported to model-run Bash, issue #11)
+# 4b2. bin/ entrypoints executable (commands/skills call them as
+#      "${CLAUDE_PLUGIN_ROOT}/bin/<tool>", substituted in the markdown before the model runs them)
 for b in agy-delegate agy-job agy-cost-compare agy-doctor cloud-debug agy-trace measure-session agy-media; do
   if [ -x "$ROOT/bin/$b" ]; then ok "bin/$b executable"; else
     bad "bin/$b not executable"; info "fix: chmod +x \"$ROOT/bin/$b\""
