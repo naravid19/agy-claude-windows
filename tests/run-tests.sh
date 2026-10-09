@@ -538,6 +538,13 @@ check "stream-json --print-command shows --output-format stream-json" 0 "$rc" "-
 if grep -q -- ' -p ' <<<"$out"; then echo "FAIL: stream-json --print-command included -p"; FAIL=$((FAIL+1));
 else echo "ok: stream-json --print-command omits -p"; PASS=$((PASS+1)); fi
 
+# The echo must say the prompt rides on stdin, or copying it into a shell hangs agy.
+out=$(STUB_INPUT_FORMAT=1 "$DELEGATE" --print-command "hi" 2>/dev/null); rc=$?
+check "stream-json --print-command says the prompt goes on stdin" 0 "$rc" "stdin" "$out"
+out=$(STUB_INPUT_FORMAT=0 STUB_JSON_CAPABLE=1 "$DELEGATE" --print-command "hi" 2>/dev/null); rc=$?
+if grep -q 'stdin' <<<"$out"; then echo "FAIL: -p --print-command mentions stdin"; FAIL=$((FAIL+1));
+else echo "ok: -p --print-command does not mention stdin"; PASS=$((PASS+1)); fi
+
 out=$(STUB_INPUT_FORMAT=1 "$DELEGATE" --print-command "/model" 2>/dev/null); rc=$?
 check "slash command --print-command keeps -p" 0 "$rc" "-p /model" "$out"
 

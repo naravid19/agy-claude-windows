@@ -425,7 +425,7 @@ esac
 # --- dry run: print the resolved (shell-quoted) agy invocation and exit ---
 if [ "$PRINT_CMD" -eq 1 ]; then
   if [ "$STREAM_MODE" -eq 1 ]; then
-    { printf 'agy'; printf ' %q' "${ARGS[@]}"; printf '\n'; }
+    { printf 'agy'; printf ' %q' "${ARGS[@]}"; printf '  # prompt goes on stdin as a stream-json user event\n'; }
   else
     { printf 'agy'; printf ' %q' "${ARGS[@]}" -p "$PROMPT"; printf '\n'; }
   fi
