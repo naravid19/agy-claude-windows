@@ -196,8 +196,7 @@ if [ "$IS_STREAM" -eq 1 ]; then
   printf '{"event":"step_update","step_update":{"conversation_id":"c1","step_index":0,"state":"DONE","step_type":"user_input"}}\n'
   case "${STUB_MODE:-text}" in
     empty)   exit 0 ;;
-    no_result) printf '{"event":"step_update","step_update":{"state":"ACTIVE"},"status":"ACTIVE","response":"PARTIAL_NOT_AN_ANSWER"}
-'; exit 0 ;;
+    no_result) printf '{"event":"step_update","step_update":{"state":"ACTIVE"},"status":"ACTIVE","response":"PARTIAL_NOT_AN_ANSWER"}\n'; exit 0 ;;
     fail)    echo "boom" >&2; exit 7 ;;
     args)    printf '{"event":"result","result":{"conversation_id":"c1","status":"SUCCESS","response":"%s\\n","duration_seconds":1.0,"num_turns":1,"usage":{"input_tokens":10,"output_tokens":2,"thinking_tokens":0,"cache_read_tokens":0,"total_tokens":12}}}\n' "$*"; exit 0 ;;
     quota)   echo "Error: quota exceeded for this model" >&2; printf '{"event":"result","result":{"conversation_id":"c1","status":"ERROR","response":"","error":"quota exceeded for this model","usage":{}}}\n'; exit 1 ;;
@@ -1101,6 +1100,10 @@ rc="$(gate_path_rc "\"$ROOT/bin/../scripts/agy-delegate.sh\" x")"
 check "gate blocks .. traversal out of bin/ -> exit 2" 2 "$rc"
 rc="$(gate_path_rc "\"$ROOT/bin/agy-delegate.sh\" x")"
 check "gate allows a literal bin/ path with a .sh suffix -> exit 0" 0 "$rc"
+# `..` is collapsed before the compare, but bash expands `$X` first and resolves `..` after,
+# so a variable anywhere in the path token makes what the gate vets differ from what runs.
+rc="$(gate_path_rc "\"$ROOT/bin/\$X/../agy-delegate\" x")"
+check "gate blocks a variable inside a path token -> exit 2" 2 "$rc"
 rc="$(gate_path_rc "\"$ROOT/bin/agy-delegate\" x; foo")"
 check "gate blocks ; chaining after full path wrapper -> exit 2" 2 "$rc"
 rc="$(gate_path_rc "\"$ROOT/bin/agy-delegate\" x && foo")"

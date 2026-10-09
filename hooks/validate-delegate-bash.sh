@@ -109,13 +109,14 @@ def is_valid_wrapper(tok):
     # 2. Path: must be an absolute path pointing to <plugin_root>/bin/<wrapper>
     if not plugin_root:
         return False
-    # No variable expansion: bash does not expand `$VAR` inside single quotes, so an
-    # expanded form here could vet a path other than the one bash then runs. The plugin
-    # markdown carries the substituted absolute path (ADR 0003), so a literal is enough.
-    expanded = tok
-    if not (os.path.isabs(expanded) or (os.name == "nt" and len(expanded) >= 3 and expanded[0] == "/" and expanded[2] == "/" and expanded[1].isalpha())):
+    # A literal path only, no variable: bash expands `$VAR` unquoted or in double quotes
+    # (not in single quotes) BEFORE it resolves `..`, so anything vetted here could differ
+    # from what runs. The plugin markdown carries the substituted absolute path (ADR 0003).
+    if "$" in tok:
         return False
-    parent_dir, filename = os.path.split(norm(expanded))
+    if not (os.path.isabs(tok) or (os.name == "nt" and len(tok) >= 3 and tok[0] == "/" and tok[2] == "/" and tok[1].isalpha())):
+        return False
+    parent_dir, filename = os.path.split(norm(tok))
     return strip_sh(filename) in WRAPPERS and parent_dir == norm(os.path.join(plugin_root, "bin"))
 
 # Quote-aware scan: split into pipeline segments on UNQUOTED '|', and flag any

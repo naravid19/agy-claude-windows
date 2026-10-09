@@ -150,10 +150,14 @@ case "$cmd" in
         if [ ${#tk_args[@]} -gt 0 ]; then
           "$taskkill_cmd" //T //F "${tk_args[@]}" >/dev/null 2>&1 || true
         else
-          # No Windows pid found: only the MSYS wrapper is killed, so native agy may still run.
-          echo "agy-job: could not resolve the Windows pid of job $pid; native agy.exe may still be running (check Task Manager)" >&2
+          tk_unresolved=1
         fi
         kill "$pid" 2>/dev/null || true
+        if [ "${tk_unresolved:-0}" -eq 1 ]; then
+          # No Windows pid found: only the MSYS wrapper was killed, so native agy.exe may still run.
+          echo "agy-job: killed the wrapper of $(basename "$jd") but could not resolve its Windows pid; native agy.exe may still be running (check Task Manager)" >&2
+          exit 1
+        fi
       else
         pkill -P "$pid" 2>/dev/null || true   # children (agy) first
         kill "$pid" 2>/dev/null || true
