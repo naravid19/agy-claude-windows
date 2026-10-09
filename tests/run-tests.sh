@@ -1012,6 +1012,17 @@ python3 -c 'import json,sys; json.loads(sys.stdin.read())' <<<"$out" 2>/dev/null
 check "inject-policy on Windows still emits valid JSON" 0 "$rc"
 out=$(OSTYPE=linux-gnu "$HOOKS/inject-policy.sh" 2>/dev/null); rc=$?
 check "inject-policy off Windows keeps the bare name" 0 "$rc" 'Call: `agy-delegate`' "$out"
+# The placeholder must never reach the model, and a `&` in the install path must not be
+# read as bash 5.2's "matched text" in the substitution (Git for Windows ships bash 5.2).
+for o in "$out" "$(OSTYPE=msys "$HOOKS/inject-policy.sh" 2>/dev/null)"; do
+  if grep -qF '@@AGY_DELEGATE@@' <<<"$o"; then echo "FAIL: inject-policy leaked its placeholder"; FAIL=$((FAIL+1));
+  else echo "ok: inject-policy does not leak its placeholder"; PASS=$((PASS+1)); fi
+done
+AMP="$TMP/a&b z"; mkdir -p "$AMP/hooks"; cp "$HOOKS/inject-policy.sh" "$HOOKS/policy-context.json" "$AMP/hooks/"
+out=$(OSTYPE=msys bash "$AMP/hooks/inject-policy.sh" 2>/dev/null); rc=$?
+check "inject-policy keeps a & in the install path" 0 "$rc" "a&b z/bin/agy-delegate" "$out"
+if grep -qF '@@AGY_DELEGATE@@' <<<"$out"; then echo "FAIL: placeholder leaked with & in the path"; FAIL=$((FAIL+1));
+else echo "ok: no placeholder leak with & in the path"; PASS=$((PASS+1)); fi
 out=$(CLAUDE_PLUGIN_OPTION_CODING_POLICY=off "$HOOKS/inject-policy.sh" 2>/dev/null); rc=$?
 if [ "$rc" = 0 ] && [ -z "$out" ]; then echo "ok: inject-policy off -> exit 0 + no output"; PASS=$((PASS+1));
 else echo "FAIL: inject-policy off (rc=$rc, out='${out:0:40}')"; FAIL=$((FAIL+1)); fi

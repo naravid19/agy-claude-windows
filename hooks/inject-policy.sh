@@ -24,6 +24,8 @@ case "${OSTYPE:-}" in
   # Quoted (the path may hold spaces); the \" is the JSON escape, as this is spliced into a string.
   msys*|cygwin*|win32) call="\\\"$(cd "$HERE/.." && pwd)/bin/agy-delegate\\\"" ;;
 esac
+# bash 5.2 reads an unquoted `&` in a ${//} replacement as "the matched text"; a path may hold one.
+shopt -u patsub_replacement 2>/dev/null
 policy="$(cat "$HERE/policy-context.json")"
 printf '%s
 ' "${policy//@@AGY_DELEGATE@@/$call}"
