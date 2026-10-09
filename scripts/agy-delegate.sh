@@ -247,7 +247,9 @@ while [ $# -gt 0 ]; do
     -m|--model)     need "$#" "$1"; MODEL="$2"; shift 2 ;;
     --print-command) PRINT_CMD=1; shift ;;          # dry run: show the resolved agy command
     -h|--help)      usage ;;
-    -)              IFS= read -r -d '' PROMPT || true; shift ;; # read prompt from stdin
+    -)              # read prompt from stdin; Linux/macOS keep `$(cat)` (trailing newlines trimmed)
+                    if on_windows_native; then IFS= read -r -d '' PROMPT || true; else PROMPT="$(cat)"; fi
+                    shift ;;
     --)             shift; PROMPT="${*:-}"; break ;;
     -*)             die "unknown option '$1'" ;;
     *)              PROMPT="$*"; break ;;            # rest is the prompt
@@ -403,7 +405,7 @@ case "$(printf '%s' "$raw_so" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
       case "$agy_help" in
         *--input-format*)
           # CLI slash commands (/model, /usage) fail in stream-json mode; keep them on -p.
-          if ! [[ "$PROMPT" =~ ^/(model|usage|permissions|help|cost|status|init|clear|quit|exit)([[:space:]]|$) ]]; then
+          if ! [[ "$PROMPT" =~ ^/(model|usage)([[:space:]]|$) ]]; then
             STREAM_MODE=1
             JSON_MODE=1
             ARGS+=(--input-format stream-json --output-format stream-json)
@@ -497,7 +499,7 @@ if [ "$STREAM_MODE" -eq 1 ]; then
   fi
 else
   # Protect Windows Rust binaries (uutils timeout, agy.exe) from aborting on incomplete UTF-8 bytes in argv
-  if command -v iconv >/dev/null 2>&1; then
+  if on_windows_native && command -v iconv >/dev/null 2>&1; then
     _clean="$(printf '%sx' "$PROMPT" | iconv -c -f UTF-8 -t UTF-8 2>/dev/null || true)"
     [ -n "$_clean" ] && PROMPT="${_clean%x}"
   fi
@@ -543,7 +545,9 @@ def extract_result(obj):
     if isinstance(obj, dict):
         if obj.get("event") == "result" and isinstance(obj.get("result"), dict):
             return obj["result"]
-        if "status" in obj or "response" in obj:
+        # The legacy single-object envelope has no `event` key; a stream event
+        # (step_update, init) that happens to carry status/response is not the result.
+        if "event" not in obj and ("status" in obj or "response" in obj):
             return obj
     return None
 d = None
@@ -608,6 +612,10 @@ PY
     tee_usage "AGY_USAGE $meta"
     # A structured ERROR is authoritative even if agy exited 0.
     [ "$JSON_STATUS" = "ERROR" ] && [ "$RC" -eq 0 ] && RC=1
+  elif [ "$STREAM_MODE" -eq 1 ] && [ "$RC" -eq 0 ]; then
+    # No `result` event: the stream is not an answer, so do not hand it back as one.
+    # The empty-output path below reports it (exit 3).
+    OUT=""
   fi
   rm -f "$RESP" "$JERR" "$JDEN"
 fi

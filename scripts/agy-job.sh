@@ -149,6 +149,9 @@ case "$cmd" in
         done
         if [ ${#tk_args[@]} -gt 0 ]; then
           "$taskkill_cmd" //T //F "${tk_args[@]}" >/dev/null 2>&1 || true
+        else
+          # No Windows pid found: only the MSYS wrapper is killed, so native agy may still run.
+          echo "agy-job: could not resolve the Windows pid of job $pid; native agy.exe may still be running (check Task Manager)" >&2
         fi
         kill "$pid" 2>/dev/null || true
       else

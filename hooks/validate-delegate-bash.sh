@@ -9,8 +9,9 @@
 # anywhere in the command, so payloads like `foo ... # agy-delegate` or
 # `echo $(...) agy-job` slipped through (arbitrary execution under prompt injection).
 # This version instead:
-#   * requires the FIRST command token (argv[0], basename, optional .sh) to be exactly
-#     agy-delegate / agy-job — a token check, not a substring match;
+#   * requires the FIRST command token (argv[0]) to be exactly agy-delegate / agy-job,
+#     bare or as a literal absolute path to <plugin root>/bin/ (optional .sh) — a token
+#     check, not a substring match;
 #   * allows NO pipeline at all. A producer allowlist was the second half of the #29
 #     hardening and it is what GHSA-hwv2-vjgj-8rcv broke, twice over: `git` with
 #     unrestricted arguments is a living-off-the-land binary (`git -c alias.x='!cmd' x`,
@@ -108,7 +109,10 @@ def is_valid_wrapper(tok):
     # 2. Path: must be an absolute path pointing to <plugin_root>/bin/<wrapper>
     if not plugin_root:
         return False
-    expanded = os.path.expandvars(tok)
+    # No variable expansion: bash does not expand `$VAR` inside single quotes, so an
+    # expanded form here could vet a path other than the one bash then runs. The plugin
+    # markdown carries the substituted absolute path (ADR 0003), so a literal is enough.
+    expanded = tok
     if not (os.path.isabs(expanded) or (os.name == "nt" and len(expanded) >= 3 and expanded[0] == "/" and expanded[2] == "/" and expanded[1].isalpha())):
         return False
     parent_dir, filename = os.path.split(norm(expanded))

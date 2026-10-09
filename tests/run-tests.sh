@@ -196,6 +196,8 @@ if [ "$IS_STREAM" -eq 1 ]; then
   printf '{"event":"step_update","step_update":{"conversation_id":"c1","step_index":0,"state":"DONE","step_type":"user_input"}}\n'
   case "${STUB_MODE:-text}" in
     empty)   exit 0 ;;
+    no_result) printf '{"event":"step_update","step_update":{"state":"ACTIVE"},"status":"ACTIVE","response":"PARTIAL_NOT_AN_ANSWER"}
+'; exit 0 ;;
     fail)    echo "boom" >&2; exit 7 ;;
     args)    printf '{"event":"result","result":{"conversation_id":"c1","status":"SUCCESS","response":"%s\\n","duration_seconds":1.0,"num_turns":1,"usage":{"input_tokens":10,"output_tokens":2,"thinking_tokens":0,"cache_read_tokens":0,"total_tokens":12}}}\n' "$*"; exit 0 ;;
     quota)   echo "Error: quota exceeded for this model" >&2; printf '{"event":"result","result":{"conversation_id":"c1","status":"ERROR","response":"","error":"quota exceeded for this model","usage":{}}}\n'; exit 1 ;;
@@ -513,6 +515,22 @@ out=$(STUB_INPUT_FORMAT=1 STUB_MODE=args "$DELEGATE" "/etc/hosts file is missing
 check "path starting with /etc uses stream-json" 0 "$rc" "--input-format stream-json" "$out"
 if grep -q -- ' -p ' <<<"$out"; then echo "FAIL: leading /etc path prompt diverted to -p"; FAIL=$((FAIL+1));
 else echo "ok: leading /etc path prompt uses stream-json"; PASS=$((PASS+1)); fi
+
+# Only the slash commands ADR 0002 names (/model, /usage) are routed to -p; anything else
+# that happens to start with a slash word is task text and travels over stdin.
+for w in init status help; do
+  out=$(STUB_INPUT_FORMAT=1 STUB_MODE=args "$DELEGATE" "/$w the build is broken" 2>/dev/null); rc=$?
+  check "stream-json: /$w task text uses stream-json" 0 "$rc" "--input-format stream-json" "$out"
+done
+
+# A stream with no `result` event is not an answer. step_update lines carry `status` /
+# `response`-like keys too, and must never be mistaken for the envelope; with no result
+# the wrapper reports an empty reply (exit 3) instead of printing raw NDJSON as the answer.
+out=$(STUB_INPUT_FORMAT=1 STUB_MODE=no_result "$DELEGATE" "hi" 2>/dev/null); rc=$?
+check "stream-json: no result event -> exit 3" 3 "$rc"
+if grep -qE 'PARTIAL_NOT_AN_ANSWER|"event"' <<<"$out"; then
+  echo "FAIL: stream-json printed raw NDJSON as the answer"; FAIL=$((FAIL+1));
+else echo "ok: stream-json with no result event prints no NDJSON"; PASS=$((PASS+1)); fi
 
 # 2. Dry-run echo (--print-command):
 out=$(STUB_INPUT_FORMAT=1 "$DELEGATE" --tier pro --print-command "hi" 2>/dev/null); rc=$?
@@ -1072,6 +1090,17 @@ rc="$(gate_path_rc "\"$ROOT/bin/agy-job\" status abc")"
 check "gate allows quoted full path agy-job -> exit 0" 0 "$rc"
 rc="$(gate_path_rc '"/tmp/bin/agy-delegate" "x"')"
 check "gate blocks full path outside plugin root -> exit 2" 2 "$rc"
+# Bash does not expand a variable inside single quotes, so this runs the LITERAL relative
+# path `$CLAUDE_PLUGIN_ROOT/bin/agy-delegate` from the cwd, which a cloned repo can supply.
+# The gate must judge what bash will run, so it takes only a literal absolute path.
+rc="$(gate_path_rc "'\$CLAUDE_PLUGIN_ROOT/bin/agy-delegate' x")"
+check "gate blocks a single-quoted \$CLAUDE_PLUGIN_ROOT path -> exit 2" 2 "$rc"
+rc="$(gate_path_rc "\"\${CLAUDE_PLUGIN_ROOT}/bin/agy-delegate\" x")"
+check "gate takes only a literal absolute path, no variable -> exit 2" 2 "$rc"
+rc="$(gate_path_rc "\"$ROOT/bin/../scripts/agy-delegate.sh\" x")"
+check "gate blocks .. traversal out of bin/ -> exit 2" 2 "$rc"
+rc="$(gate_path_rc "\"$ROOT/bin/agy-delegate.sh\" x")"
+check "gate allows a literal bin/ path with a .sh suffix -> exit 0" 0 "$rc"
 rc="$(gate_path_rc "\"$ROOT/bin/agy-delegate\" x; foo")"
 check "gate blocks ; chaining after full path wrapper -> exit 2" 2 "$rc"
 rc="$(gate_path_rc "\"$ROOT/bin/agy-delegate\" x && foo")"
@@ -1519,7 +1548,11 @@ win_doctor() { # $1 = agy version, $2 = uname -s output (default MINGW64_NT-10.0
     echo "echo '$uname_s'"
     echo 'exit 0'; } > "$d/uname"
   chmod +x "$d/uname"
-  PATH="$d:$PATH" bash "$ROOT/scripts/doctor.sh" 2>&1
+  # doctor.sh trusts $OSTYPE before uname, and bash exports the real host's OSTYPE
+  # (msys on Git Bash). Faking uname alone would leave the host's value in charge.
+  local ostype=linux-gnu
+  case "$uname_s" in MINGW*|MSYS*) ostype=msys ;; CYGWIN*) ostype=cygwin ;; esac
+  OSTYPE="$ostype" PATH="$d:$PATH" bash "$ROOT/scripts/doctor.sh" 2>&1
 }
 
 # On Windows, agy 1.2.10 produces the upgrade warning and 1.2.11 does not
