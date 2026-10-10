@@ -57,8 +57,16 @@ on_windows_native() {
 tier_default() { # $1 = FLASH | FLASH_LO | PRO
   sed -n "s/.*CLAUDE_PLUGIN_OPTION_TIER_$1:-\\(.*\\)}\".*/\\1/p" "$DELEGATE" | head -1
 }
-DEF_FLASH="$(tier_default FLASH)"
-DEF_FLASH_LO="$(tier_default FLASH_LO)"
+# The two Flash tiers resolve through scripts/model-resolver.sh (newest Flash in `agy
+# models`, read from a cache). The suite points that cache at a private, fresh file seeded
+# with the pinned fallback: no test touches the real cache, none spawns a refresh, and the
+# defaults below stay deterministic. The resolver has its own section further down.
+export AGY_FLASH_CACHE="$TMP/flash.cache"
+# shellcheck source=../scripts/model-resolver.sh
+. "$ROOT/scripts/model-resolver.sh"
+printf 'High=%s\nLow=%s\n' "$FLASH_HIGH_FALLBACK" "$FLASH_LOW_FALLBACK" > "$AGY_FLASH_CACHE"
+DEF_FLASH="$FLASH_HIGH_FALLBACK"
+DEF_FLASH_LO="$FLASH_LOW_FALLBACK"
 DEF_PRO="$(tier_default PRO)"
 
 # The stub answers `agy models` in SLUG form, which is what agy 1.1.5+ emits and what
@@ -72,12 +80,18 @@ export STUB_MODELS
 
 # doctor keeps its OWN copy of these defaults, and a mismatch makes it warn that a tier
 # model is missing while delegation happily uses a different one. Pin them together.
-for _t in FLASH FLASH_LO PRO; do
-  _w="$(tier_default "$_t")"
-  _d="$(sed -n "s/.*CLAUDE_PLUGIN_OPTION_TIER_$_t:-\\(.*\\)}\".*/\\1/p" "$ROOT/scripts/doctor.sh" | head -1)"
-  if [ -n "$_w" ] && [ "$_w" = "$_d" ]; then
-    echo "ok: doctor and the wrapper agree on the $_t tier default"; PASS=$((PASS+1));
-  else echo "FAIL: tier $_t default drift — wrapper '$_w' vs doctor '$_d'"; FAIL=$((FAIL+1)); fi
+_w="$(tier_default PRO)"
+_d="$(sed -n "s/.*CLAUDE_PLUGIN_OPTION_TIER_PRO:-\\(.*\\)}\".*/\\1/p" "$ROOT/scripts/doctor.sh" | head -1)"
+if [ -n "$_w" ] && [ "$_w" = "$_d" ]; then
+  echo "ok: doctor and the wrapper agree on the PRO tier default"; PASS=$((PASS+1));
+else echo "FAIL: tier PRO default drift — wrapper '$_w' vs doctor '$_d'"; FAIL=$((FAIL+1)); fi
+# the Flash tiers have no literal default to compare: both scripts must take it from the
+# resolver, and neither may name a Flash version again
+for _f in "$ROOT/scripts/agy-delegate.sh" "$ROOT/scripts/doctor.sh"; do
+  if grep -q 'TIER_FLASH:-\$(flash_for_effort High)' "$_f" && grep -q 'TIER_FLASH_LO:-\$(flash_for_effort Low)' "$_f" \
+     && ! grep -E 'TIER_FLASH(_LO)?:-Gemini' "$_f" >/dev/null; then
+    echo "ok: $(basename "$_f") takes the Flash tiers from the resolver"; PASS=$((PASS+1));
+  else echo "FAIL: $(basename "$_f") still hard-codes a Flash tier default"; FAIL=$((FAIL+1)); fi
 done
 
 # bash does not hoist: a function called above its definition is `command not found`,
@@ -1067,6 +1081,95 @@ else echo "FAIL: nudge fired while disabled"; FAIL=$((FAIL+1)); fi
 out=$(printf '%s' '{"prompt":"hello","cwd":"/home/u/migration-tool"}' | "$NUDGE" 2>/dev/null)
 if [ -z "$out" ]; then echo "ok: nudge scans only the prompt field (cwd noise ignored)"; PASS=$((PASS+1));
 else echo "FAIL: nudge matched a non-prompt field"; FAIL=$((FAIL+1)); fi
+
+echo "== model-resolver (Flash tiers follow the newest Flash in agy models) =="
+TAB=$'\t'
+M_SLUGS="Fetching available models...
+gemini-3.9-flash-high${TAB}Gemini 3.9 Flash (High)
+gemini-3.10-flash-high${TAB}Gemini 3.10 Flash (High)
+gemini-3.10-flash-low${TAB}Gemini 3.10 Flash (Low)
+gemini-4-flash-medium${TAB}Gemini 4 Flash (Medium)
+gemini-3.1-pro-high${TAB}Gemini 3.1 Pro (High)"
+check "newest High wins, 3.10 > 3.9 numerically, other efforts and families ignored" 0 0 "Gemini 3.10 Flash (High)" "$(latest_flash_from_models High <<<"$M_SLUGS")"
+check "Low picks the Low line" 0 0 "Gemini 3.10 Flash (Low)" "$(latest_flash_from_models Low <<<"$M_SLUGS")"
+M_DISP=$'Gemini 3.6 Flash (High)\nGemini 4.1 Flash (High)\nGemini 4 Flash (High)'
+check "display-only output, in any order" 0 0 "Gemini 4.1 Flash (High)" "$(latest_flash_from_models High <<<"$M_DISP")"
+out="$(latest_flash_from_models High <<<'gemini-3.1-pro-high')"
+if [ -z "$out" ]; then echo "ok: no Flash line -> nothing printed"; PASS=$((PASS+1)); else echo "FAIL: invented a Flash: $out"; FAIL=$((FAIL+1)); fi
+out="$(latest_flash_from_models High <<<$'gemini-3.-flash-high\ngemini-3.x-flash-high\ngemini-3..1-flash-high\ngemini--flash-high')"
+if [ -z "$out" ]; then echo "ok: malformed versions are skipped"; PASS=$((PASS+1)); else echo "FAIL: malformed version accepted: $out"; FAIL=$((FAIL+1)); fi
+
+RC="$TMP/rs.cache"
+rs() { AGY_FLASH_CACHE="$RC" bash -c '. "$1"; flash_for_effort "$2"' _ "$ROOT/scripts/model-resolver.sh" "$1"; }
+rm -f "$RC"
+check "no cache -> pinned High fallback" 0 0 "$FLASH_HIGH_FALLBACK" "$(rs High)"
+check "no cache -> pinned Low fallback" 0 0 "$FLASH_LOW_FALLBACK" "$(rs Low)"
+printf 'High=Gemini 9.9 Flash (High)\nLow=Gemini 9.9 Flash (Low)\n' > "$RC"
+check "cache -> cached High" 0 0 "Gemini 9.9 Flash (High)" "$(rs High)"
+check "cache -> cached Low" 0 0 "Gemini 9.9 Flash (Low)" "$(rs Low)"
+printf 'High=Gemini 9.9 Flash (High)\r\nLow=Gemini 9.9 Flash (Low)\r\n' > "$RC"
+check "CRLF cache (Windows editor) still reads" 0 0 "Gemini 9.9 Flash (High)" "$(rs High)"
+# the cache is a file in a shared temp dir: only the exact shape is believed
+printf 'High=Gemini 9 Flash (High); touch /tmp/pwn\nLow=--yolo\n' > "$RC"
+check "hostile High line -> fallback" 0 0 "$FLASH_HIGH_FALLBACK" "$(rs High)"
+check "hostile Low line -> fallback" 0 0 "$FLASH_LOW_FALLBACK" "$(rs Low)"
+printf 'High=Gemini 9.9 Flash (Low)\n' > "$RC"
+check "High line holding a Low name -> fallback" 0 0 "$FLASH_HIGH_FALLBACK" "$(rs High)"
+printf 'High=Gemini 9.9 Flash (High)\n' > "$RC"; touch -d '3 days ago' "$RC" 2>/dev/null
+check "a stale cache is still used (refresh is in the background)" 0 0 "Gemini 9.9 Flash (High)" "$(rs High)"
+
+# a bad answer must not wipe a good cache; a good one replaces it atomically
+printf 'High=Gemini 5 Flash (High)\nLow=Gemini 5 Flash (Low)\n' > "$RC"
+AGY_FLASH_CACHE="$RC" bash -c '. "$1"; flash_cache_write <<<"gemini-3.1-pro-high"' _ "$ROOT/scripts/model-resolver.sh"; rc=$?
+check "no Flash in the answer -> write refused" 1 "$rc"
+check "refused write leaves the cache alone" 0 0 "Gemini 5 Flash (High)" "$(rs High)"
+AGY_FLASH_CACHE="$RC" bash -c '. "$1"; flash_cache_write <<<"gemini-9.8-flash-high"' _ "$ROOT/scripts/model-resolver.sh"; rc=$?
+check "High-only answer is written" 0 "$rc"
+check "missing Low falls back to the pin" 0 0 "$FLASH_LOW_FALLBACK" "$(rs Low)"
+check "written High is read back" 0 0 "Gemini 9.8 Flash (High)" "$(rs High)"
+AGY_FLASH_CACHE="$RC" STUB_MODELS="gemini-9.7-flash-high gemini-9.7-flash-low" bash -c '. "$1"; flash_cache_refresh' _ "$ROOT/scripts/model-resolver.sh"; rc=$?
+check "refresh via the agy stub" 0 "$rc"
+check "refresh stored the stub's newest Low" 0 0 "Gemini 9.7 Flash (Low)" "$(rs Low)"
+
+# the wrapper reads the cache, and exact settings still win over it
+printf 'High=Gemini 9.9 Flash (High)\nLow=Gemini 9.9 Flash (Low)\n' > "$RC"
+out=$(AGY_FLASH_CACHE="$RC" "$DELEGATE" --print-command "hi" 2>/dev/null); rc=$?
+check "wrapper: flash tier uses the cached newest Flash" 0 "$rc" "9.9" "$out"
+out=$(AGY_FLASH_CACHE="$RC" "$DELEGATE" --tier flash-lo --print-command "hi" 2>/dev/null)
+check "wrapper: flash-lo tier uses the cached Low" 0 0 "9.9" "$out"
+out=$(AGY_FLASH_CACHE="$RC" "$DELEGATE" --tier pro --print-command "hi" 2>/dev/null)
+if has "9.9" "$out"; then echo "FAIL: the pro tier followed the Flash cache"; FAIL=$((FAIL+1)); else echo "ok: pro tier ignores the Flash cache"; PASS=$((PASS+1)); fi
+out=$(AGY_FLASH_CACHE="$RC" CLAUDE_PLUGIN_OPTION_TIER_FLASH="Gemini 1.0 Flash (High)" "$DELEGATE" --print-command "hi" 2>/dev/null)
+if has "1.0" "$out" && ! has "9.9" "$out"; then echo "ok: tier_flash beats the cache"; PASS=$((PASS+1)); else echo "FAIL: tier_flash did not beat the cache"; FAIL=$((FAIL+1)); fi
+out=$(AGY_FLASH_CACHE="$RC" "$DELEGATE" --model "Gemini 2.0 Flash (High)" --print-command "hi" 2>/dev/null)
+if has "2.0" "$out" && ! has "9.9" "$out"; then echo "ok: --model beats the cache"; PASS=$((PASS+1)); else echo "FAIL: --model did not beat the cache"; FAIL=$((FAIL+1)); fi
+
+# agy models measured 9.4 s: a delegation must not wait for it. SLOWBIN's `agy models`
+# sleeps, counts its calls, then answers; every other subcommand is the normal stub.
+SLOWBIN="$TMP/slowbin"; SLOWN="$TMP/slow.count"; mkdir -p "$SLOWBIN"
+printf '#!/bin/sh\nif [ "$1" = models ]; then echo x >> "%s"; sleep 3; printf "%%s\\n" gemini-9.9-flash-high gemini-9.9-flash-low; exit 0; fi\nexec "%s" "$@"\n' "$SLOWN" "$TMP/bin/agy" > "$SLOWBIN/agy"
+chmod +x "$SLOWBIN/agy"
+slow_count() { [ -f "$SLOWN" ] && wc -l < "$SLOWN" | tr -d ' ' || echo 0; }
+SC="$TMP/slow-run.cache"; rm -f "$SC" "$SC.lock" "$SLOWN"
+t0=$SECONDS
+out=$(PATH="$SLOWBIN:$PATH" AGY_FLASH_CACHE="$SC" STUB_MODE=text timeout 30 "$DELEGATE" "hi" 2>/dev/null); rc=$?
+dt=$((SECONDS - t0))
+check "cache miss: the call still succeeds" 0 "$rc" "STUB_OK" "$out"
+if [ "$dt" -lt 3 ]; then echo "ok: cache miss does not wait for agy models (${dt}s)"; PASS=$((PASS+1)); else echo "FAIL: delegation waited ${dt}s on agy models"; FAIL=$((FAIL+1)); fi
+PATH="$SLOWBIN:$PATH" AGY_FLASH_CACHE="$SC" STUB_MODE=text timeout 30 "$DELEGATE" "hi again" >/dev/null 2>&1
+for _i in 1 2 3 4 5 6 7 8 9 10 11 12; do [ -s "$SC" ] && break; sleep 1; done
+check "background refresh filled the cache" 0 0 "Gemini 9.9 Flash (High)" "$(AGY_FLASH_CACHE="$SC" bash -c '. "$1"; flash_for_effort High' _ "$ROOT/scripts/model-resolver.sh")"
+check "a second call inside the lock window did not start another refresh" 0 0 "1" "$(slow_count)"
+# dry run and a fresh cache must never spawn a refresh
+rm -f "$SC" "$SC.lock" "$SLOWN"
+PATH="$SLOWBIN:$PATH" AGY_FLASH_CACHE="$SC" "$DELEGATE" --print-command "hi" >/dev/null 2>&1; sleep 1
+check "--print-command starts no refresh" 0 0 "0" "$(slow_count)"
+printf 'High=Gemini 9.9 Flash (High)\nLow=Gemini 9.9 Flash (Low)\n' > "$SC"
+PATH="$SLOWBIN:$PATH" AGY_FLASH_CACHE="$SC" STUB_MODE=text "$DELEGATE" "hi" >/dev/null 2>&1; sleep 1
+check "a fresh cache starts no refresh" 0 0 "0" "$(slow_count)"
+rm -f "$SC" "$SC.lock" "$SLOWN"
+PATH="$SLOWBIN:$PATH" AGY_FLASH_CACHE="$SC" CLAUDE_PLUGIN_OPTION_TIER_FLASH="Gemini 1.0 Flash (High)" CLAUDE_PLUGIN_OPTION_TIER_FLASH_LO="Gemini 1.0 Flash (Low)" STUB_MODE=text "$DELEGATE" "hi" >/dev/null 2>&1; sleep 1
+check "both Flash tiers remapped -> no refresh" 0 0 "0" "$(slow_count)"
 
 echo "== delegate subagent guardrail =="
 GATE="$HOOKS/validate-delegate-bash.sh"
@@ -2368,10 +2471,12 @@ out=$(ROOT="$ROOT" python3 - <<'PY' 2>&1
 import json, os, re
 root = os.environ["ROOT"]
 pj = json.load(open(os.path.join(root, "prices.json"), encoding="utf-8"))
-src = open(os.path.join(root, "scripts", "agy-delegate.sh"), encoding="utf-8").read()
-m = re.search(r'flash\)\s*echo "\$\{CLAUDE_PLUGIN_OPTION_TIER_FLASH:-([^}]*)\}"', src)
+# The flash tier now follows `agy models`; what it uses when nothing is cached is the
+# pinned fallback in model-resolver.sh, so that is the model prices.json must mirror.
+src = open(os.path.join(root, "scripts", "model-resolver.sh"), encoding="utf-8").read()
+m = re.search(r'FLASH_HIGH_FALLBACK="([^"]*)"', src)
 if not m:
-    print("flash tier default not found (model_for_tier pattern changed?)"); raise SystemExit
+    print("flash fallback not found (model-resolver.sh pattern changed?)"); raise SystemExit
 default = m.group(1)
 # Derive the key from the default rather than enumerating versions. The previous shape
 # hardcoded 3.5 and 3.6 and told you to "reconcile by hand" for anything else, which is a

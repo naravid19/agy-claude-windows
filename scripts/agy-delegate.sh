@@ -180,10 +180,12 @@ usage() { sed -n '/^# Usage:/,/^# Exit codes:/p' "$0" | sed 's/^# \{0,1\}//'; ex
 # --- map a tier to an exact agy model name (see `agy models`) ---
 # Defaults are Gemini, but each tier is remappable to any agy model via userConfig
 # (env), so non-Vertex/non-Gemini plans (Claude/GPT) work without code changes.
+# The two Flash tiers default to the newest Flash in `agy models` (scripts/model-resolver.sh).
+. "$(dirname "$0")/model-resolver.sh"
 model_for_tier() {
   case "$1" in
-    flash)    echo "${CLAUDE_PLUGIN_OPTION_TIER_FLASH:-Gemini 3.8 Flash (High)}" ;;
-    flash-lo) echo "${CLAUDE_PLUGIN_OPTION_TIER_FLASH_LO:-Gemini 3.8 Flash (Low)}" ;;
+    flash)    echo "${CLAUDE_PLUGIN_OPTION_TIER_FLASH:-$(flash_for_effort High)}" ;;
+    flash-lo) echo "${CLAUDE_PLUGIN_OPTION_TIER_FLASH_LO:-$(flash_for_effort Low)}" ;;
     pro)      echo "${CLAUDE_PLUGIN_OPTION_TIER_PRO:-Gemini 3.1 Pro (High)}" ;;
     *) die "unknown tier '$1' (use flash | flash-lo | pro)" ;;
   esac
@@ -428,6 +430,12 @@ if [ "$PRINT_CMD" -eq 1 ]; then
     { printf 'agy'; printf ' %q' "${ARGS[@]}" -p "$PROMPT"; printf '\n'; }
   fi
   exit 0
+fi
+
+# Keep the Flash default current without ever waiting for it: only worth doing when this
+# call could have used it, i.e. no explicit model and no tier remap.
+if [ -z "${CLAUDE_PLUGIN_OPTION_TIER_FLASH:-}${CLAUDE_PLUGIN_OPTION_TIER_FLASH_LO:-}" ]; then
+  flash_cache_refresh_async
 fi
 
 # --- run (always detach stdin so non-TTY stdout is not dropped) ---

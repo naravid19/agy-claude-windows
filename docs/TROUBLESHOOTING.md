@@ -192,6 +192,18 @@ expose Claude/GPT). The default tier mappings may not match your plan.
 `tier_flash_lo` / `tier_pro` or `default_model` (exact names from `agy models`), or pass
 `--model "<exact name>"` per call.
 
+## The Flash tier runs an older (or newer) model than `agy models` shows
+
+**Cause:** the `flash` / `flash-lo` tiers follow the newest Flash in `agy models` through a
+cache (`agy-delegate-flash.cache` in your temp dir, refreshed in the background at most every
+12 h and at most once per 5 min). Before the first refresh, or if `agy models` lists no Flash,
+the pinned Gemini 3.8 Flash is used.
+
+**Fix:** run `agy-doctor` — it refreshes the cache from the `agy models` answer it already
+fetched. To pin a model and stop following new releases, set `tier_flash` / `tier_flash_lo`.
+Delete the cache file to force a re-resolve. If the cached model has left your plan, the
+delegation exits 14 naming the fix, and the next background refresh corrects the cache.
+
 ---
 
 ## Output is huge / "looks like a raw dump, not a digest"

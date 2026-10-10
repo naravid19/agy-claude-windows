@@ -16,6 +16,16 @@ Changes on top of upstream `0.28.0` (fork point `97f8d13`), 2026-09-27 to 2026-1
 
 ### Added
 
+- **The `flash` and `flash-lo` tiers follow the newest Flash in `agy models`.**
+  `scripts/model-resolver.sh` (adapted from upstream 0.20.1) picks the newest
+  `Gemini <ver> Flash (High|Low)`, comparing versions numerically (3.10 > 3.9) and reading both the
+  slug and the display-name form of `agy models`. Upstream asks `agy models` on every call under a
+  5 s limit; here it measured 9.4 s (it waits on agy's MCP servers), which would always time out
+  or stall every delegation. So the wrapper only reads a cache in the temp dir (12 h) and, when it
+  is missing or stale, starts a detached refresh (at most one per 5 min) and uses the cached or
+  pinned Gemini 3.8 Flash for that call. `agy-doctor` refreshes the cache from the answer it
+  already fetched. The cache is only believed if a line has exactly the shape we write. An exact
+  `tier_flash` / `tier_flash_lo`, `default_model` or `--model` still wins, and `pro` is untouched.
 - **Native Windows support under Git Bash.** The plugin runs directly in Git for Windows with
   agy ≥ 1.2.11, with no WSL or ConPTY bridge (ADR-0001). CI gained a `windows-latest` job that
   runs `tests/run-tests.sh` under Git Bash, and `.gitattributes` pins `*.sh`, `bin/*` and `*.py`
