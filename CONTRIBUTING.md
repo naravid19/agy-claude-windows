@@ -69,6 +69,18 @@ shellcheck scripts/*.sh tests/*.sh   # CI gates on --severity=error
     is exempt. This is not a required status check: if the edit is deliberate, merge over
     the red line and say so in the PR body.
 
+
+### Faster test runs, and Windows traps
+
+The suite runs for minutes. To iterate on one area, run one section: `bash tests/run-section.sh --list` names them, `bash tests/run-section.sh "propagate-yolo"` runs the one whose heading contains that text (a section that uses a helper from an earlier one needs the full suite).
+
+Testing on Windows (Git Bash) has four traps no config confesses:
+
+- Do not edit `tests/run-tests.sh` while a run is in flight. Bash reads a script as it goes, so an edit mid-run ends in `syntax error near unexpected token`. Run from a copy or a `git worktree`, or use `run-section.sh`, which reads a copy.
+- MSYS rewrites `/c/...` strings in command-line arguments and environment values handed to a native program such as Python. A test that needs the literal path passes it on stdin.
+- `ln -s` makes a copy rather than a symlink, so a symlink-following bug cannot be reproduced on this setup. Cover it with `tests/check-shell-hygiene.py`, which bans the predictable temp names that make it exploitable.
+- With Git for Windows' default `core.autocrlf=true`, markdown files check out as CRLF (`.gitattributes` pins only `*.sh`, `*.py` and `bin/*` to LF). A script that edits one with an exact multi-line string must read it with `newline=''` and match both endings.
+
 ## Conventions
 
 - Small, focused PRs. Describe *what changed and why*; link the issue.

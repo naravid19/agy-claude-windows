@@ -30,6 +30,17 @@ trap cleanup EXIT
 # and on push, and counting it green there would hide the fact that nothing judged it.
 PASS=0; FAIL=0; SKIP=0
 
+# The prose a reader or an agent is told things by. Every guard that judges what the docs
+# CLAIM takes one of these lists and nothing else: three guards that each carried their own
+# glob all missed skills/antigravity/references/ when text moved there. A new place for prose
+# is added here once. DOC_SURFACES is everything a human or agent reads; AGENT_SURFACES is
+# the subset that instructs the model what to run.
+shopt -s nullglob
+DOC_SURFACES=("$ROOT"/README.md "$ROOT"/docs/*.md "$ROOT"/skills/*/*.md "$ROOT"/skills/*/references/*.md "$ROOT"/agents/*.md "$ROOT"/commands/*.md)
+AGENT_SURFACES=("$ROOT"/skills/*/*.md "$ROOT"/skills/*/references/*.md "$ROOT"/agents/*.md "$ROOT"/commands/*.md)
+shopt -u nullglob
+AGENT_SURFACES_NL="$(printf '%s\n' "${AGENT_SURFACES[@]}")"; export AGENT_SURFACES_NL
+
 # The suite's own `python3` calls need a real Python 3. On Windows `python3` is often the
 # Microsoft Store alias stub, so when the plugin's resolver picks something else, a
 # `python3` shim first on PATH points at it. With a working python3 nothing changes.
@@ -339,6 +350,7 @@ check() { # desc  expected_rc  actual_rc  [substr]  [actual_out]
   echo "ok: $desc"; PASS=$((PASS+1))
 }
 
+# --- end of setup: the sections start below (tests/run-section.sh cuts the suite here) ---
 echo "== agy-delegate.sh =="
 
 out=$(STUB_MODE=text "$DELEGATE" "hello" 2>/dev/null); rc=$?
@@ -1547,6 +1559,95 @@ out=$(PATH="$NOPY:$PATH" STUB_JSON_CAPABLE=1 STUB_MODE=args "$DELEGATE" "hi" 2>/
 if [ "$rc" = 0 ] && ! has "--output-format" "$out"; then echo "ok: no Python: delegate falls back to plain text"; PASS=$((PASS+1));
 else echo "FAIL: no Python: delegate asked for JSON it cannot unwrap (rc=$rc)"; FAIL=$((FAIL+1)); fi
 
+echo "== shell hygiene (predictable temp names, late stderr redirect) =="
+# Two shapes review kept finding in new code, both fixed by hand twice before this: a temp
+# file named "$X.$$" in a shared temp dir (a planted symlink is followed), and
+# `cmd > file 2>/dev/null` (the open error is printed before the redirect applies).
+if python3 "$HERE/check-shell-hygiene.py" "$ROOT"/scripts/*.sh "$ROOT"/hooks/*.sh "$ROOT"/bin/*; then
+  echo "ok: no shipped script builds a temp name from \$\$ or redirects stderr too late"; PASS=$((PASS+1));
+else echo "FAIL: shell hygiene (see above)"; FAIL=$((FAIL+1)); fi
+hyg_case() { # label  expected_rc  one-line script body
+  local f="$TMP/hyg-$1.sh"; printf '%s\n' "$3" > "$f"
+  python3 "$HERE/check-shell-hygiene.py" "$f" >/dev/null 2>&1; local rc=$?
+  if [ "$rc" -eq "$2" ]; then echo "ok: hygiene checker - $1"; PASS=$((PASS+1));
+  else echo "FAIL: hygiene checker - $1 (rc=$rc, want $2)"; FAIL=$((FAIL+1)); fi
+}
+hyg_case pid-var-suffix   1 'tmp="$FLASH_CACHE.$$"'
+hyg_case pid-braced       1 'tmp="${CACHE}.$$"'
+hyg_case pid-tmp-literal  1 'f=/tmp/agy-out.$$'
+hyg_case late-redirect    1 'printf x > "$tmp" 2>/dev/null || return 1'
+hyg_case late-redirect-echo 1 'echo x >"$tmp" 2>/dev/null'
+hyg_case pid-after-subst  1 'tmp=$(mktemp).$$'
+hyg_case pid-dash-suffix  1 'f=/tmp/x-$$'
+hyg_case pid-dir-prefix   1 'mv x "$d/$$.tmp"'
+hyg_case late-append      1 'printf x >> "$f" 2>/dev/null'
+hyg_case late-after-and   1 'foo && echo hi > "$f" 2>/dev/null'
+hyg_case late-after-if    1 'if cat a > "$b" 2>/dev/null; then :; fi'
+hyg_case late-after-pipe  1 'echo x | cat > "$b" 2>/dev/null'
+hyg_case redirect-to-null-ok 0 'echo x > /dev/null 2>&1'
+hyg_case silencer-first-ok 0 'cmd 2>/dev/null >"$f"'
+hyg_case lone-pid-ok      0 'kill $$'
+hyg_case mktemp-is-fine   0 'f="$(mktemp "${TMPDIR:-/tmp}/x.XXXXXX")"'
+hyg_case grouped-is-fine  0 '{ printf x > "$tmp"; } 2>/dev/null || return 1'
+hyg_case no-silence-fine  0 'printf x > "$tmp" || return 1'
+hyg_case stderr-first     0 'printf x 2>/dev/null > "$tmp"'
+hyg_case to-stderr-fine   0 'echo oops >&2'
+hyg_case dollar-dollar-alone 0 'echo "pid $$" > "$log"'
+hyg_case comment-ignored  0 '# tmp="$X.$$"'
+hyg_case marker-honoured  0 'tmp=/tmp/x.$$  # hygiene-ok: single-user CI box'
+python3 "$HERE/check-shell-hygiene.py" >/dev/null 2>&1; rc=$?
+check "check-shell-hygiene with no files exits 2 (a guard that scanned nothing)" 2 "$rc"
+
+echo "== run-section.sh (one section of this suite, without the other twenty-odd minutes) =="
+n_sections="$(grep -c '^echo "== ' "$HERE/run-tests.sh")"
+out="$(bash "$HERE/run-section.sh" --list 2>&1)"; rc=$?
+check "run-section --list exits 0" 0 "$rc" "skill structure" "$out"
+got="$(printf '%s\n' "$out" | grep -c .)"
+if [ "$got" -eq "$n_sections" ]; then echo "ok: --list names every section ($got)"; PASS=$((PASS+1)); else echo "FAIL: --list names $got sections, the suite has $n_sections"; FAIL=$((FAIL+1)); fi
+out="$(bash "$HERE/run-section.sh" "skill structure" 2>&1)"; rc=$?
+check "run-section runs one section by a substring of its heading" 0 "$rc" "SKILL.md is" "$out"
+if ! has "propagate-yolo hook" "$out" && ! has "model-resolver" "$out"; then echo "ok: only the matching section ran"; PASS=$((PASS+1)); else echo "FAIL: another section ran too"; FAIL=$((FAIL+1)); fi
+out="$(bash "$HERE/run-section.sh" "no such section anywhere" 2>&1)"; rc=$?
+check "an unknown section exits 2 and says so" 2 "$rc" "no section matches" "$out"
+bash "$HERE/run-section.sh" >/dev/null 2>&1; rc=$?
+check "run-section with no argument exits 2 (usage)" 2 "$rc"
+# the first version of this runner false-passed: it cut the setup at the first heading, so
+# the stubs and check() were missing and `command not found` left FAIL untouched
+out="$(bash "$HERE/run-section.sh" "model-resolver" 2>&1)"; rc=$?
+check "a section that needs check() and the stubs runs (setup is the whole preamble)" 0 "$rc" "PASS=" "$out"
+if has "command not found" "$out"; then echo "FAIL: model-resolver section hit a missing helper"; FAIL=$((FAIL+1)); else echo "ok: no missing helper in the model-resolver section"; PASS=$((PASS+1)); fi
+RS_SUITE="$TMP/rs-suite.sh"
+printf '%s\n' 'HERE=/x' 'PASS=5; FAIL=0' '# --- end of setup: test' 'echo "== needs helper =="' 'helper_defined_elsewhere_xyz' 'echo "== counts =="' 'PASS=$((PASS+1))' 'if [ "$SKIP" -gt 0 ]; then :; fi' > "$RS_SUITE"
+out="$(RUN_SECTION_SUITE="$RS_SUITE" bash "$HERE/run-section.sh" "needs helper" 2>&1)"; rc=$?
+check "a missing helper is a failure, not a pass" 1 "$rc" "needs a helper defined in an earlier section" "$out"
+out="$(RUN_SECTION_SUITE="$RS_SUITE" bash "$HERE/run-section.sh" "counts" 2>&1)"; rc=$?
+check "the setup's own passes are not counted as the section's" 0 "$rc" "PASS=1 FAIL=0" "$out"
+# the install path may hold "&" and a space (an & already broke inject-policy once); "|" cannot exist on NTFS
+RS_TREE="$TMP/a&b c"; mkdir -p "$RS_TREE"
+(cd "$ROOT" && tar -cf - --exclude=./.git --exclude=./resource --exclude=./.scratch .) | (cd "$RS_TREE" && tar -xf -)
+out="$(bash "$RS_TREE/tests/run-section.sh" "skill structure" 2>&1)"; rc=$?
+check "run-section works from a path containing &" 0 "$rc" "PASS=" "$out"
+
+echo "== every claim guard scans one shared list of doc surfaces =="
+# Moving text into skills/antigravity/references/ slipped past three guards that each had
+# their own glob. They now all take DOC_SURFACES / AGENT_SURFACES (defined once, above), and
+# this fails the next guard that spells a doc glob out again.
+hard="$(python3 - "$0" <<'PY'
+import re, sys
+bad = []
+for n, line in enumerate(open(sys.argv[1], encoding="utf-8"), 1):
+    s = line.strip()
+    if s.startswith(("#", "DOC_SURFACES=", "AGENT_SURFACES=")): continue
+    if re.search(r'skills/\*/|\$ROOT"/(docs|commands|agents)/\*\.md', s): bad.append(str(n))
+print(" ".join(bad))
+PY
+)"
+if [ -z "$hard" ] && [ "${#DOC_SURFACES[@]}" -gt 0 ] && [ "${#AGENT_SURFACES[@]}" -gt 0 ]; then
+  echo "ok: no guard spells out its own doc glob (${#DOC_SURFACES[@]} doc surfaces, ${#AGENT_SURFACES[@]} agent surfaces)"; PASS=$((PASS+1));
+else echo "FAIL: guards with their own doc glob, or the shared lists are empty (lines: ${hard:-none})"; FAIL=$((FAIL+1)); fi
+case " ${DOC_SURFACES[*]} " in *"/skills/antigravity/references/recipes.md "*) echo "ok: DOC_SURFACES includes the references"; PASS=$((PASS+1)) ;;
+  *) echo "FAIL: DOC_SURFACES misses skills/antigravity/references/"; FAIL=$((FAIL+1)) ;; esac
+
 echo "== skill structure (SKILL.md is read in full on every invocation; detail lives in references/) =="
 SK="$ROOT/skills/antigravity"
 n=$(wc -l < "$SK/SKILL.md" | tr -d ' ')
@@ -1683,8 +1784,7 @@ echo "== --sandbox is not sold as containment =="
 # exempted a bad sentence sitting beside a good one, because the neighbour's negation
 # satisfied the window. check-sandbox-claims.py judges SENTENCES, so each claim carries
 # its own negation or none.
-if python3 "$HERE/check-sandbox-claims.py" "$ROOT"/README.md "$ROOT"/docs/*.md \
-     "$ROOT"/skills/*/SKILL.md "$ROOT"/skills/*/references/*.md "$ROOT"/agents/*.md "$ROOT"/commands/*.md \
+if python3 "$HERE/check-sandbox-claims.py" "${DOC_SURFACES[@]}" \
      "$ROOT"/scripts/*.sh "$ROOT"/hooks/*.sh; then
   echo "ok: nothing recommends --sandbox as containment"; PASS=$((PASS+1));
 else echo "FAIL: --sandbox described as containment (see above)"; FAIL=$((FAIL+1)); fi
@@ -1937,7 +2037,7 @@ oe_case prose      0 "# a bare $oe_open() uses the locale"
 echo "== markdown instructions invoke bin/ via \${CLAUDE_PLUGIN_ROOT}/bin/ =="
 # Claude Code documents plugin bin/ as on PATH, but on Windows no plugin bin/ reaches PATH.
 # Markdown instructions in commands/, skills/, agents/ must invoke tools via "${CLAUDE_PLUGIN_ROOT}/bin/<tool>".
-if python3 "$HERE/check-bin-invocation.py" "$ROOT"/commands/*.md "$ROOT"/skills/*/*.md "$ROOT"/skills/*/references/*.md "$ROOT"/agents/*.md; then
+if python3 "$HERE/check-bin-invocation.py" "${AGENT_SURFACES[@]}"; then
   echo "ok: no bare bin/ tool invocations in commands, skills, or agents"; PASS=$((PASS+1));
 else echo "FAIL: found bare bin/ tool invocation (see above)"; FAIL=$((FAIL+1)); fi
 bi_case() { # $1 = label, $2 = expected rc, $3 = file body
@@ -2111,9 +2211,8 @@ e15_bad=""
 # diagnostic without describing what produces it, and demanding the taxonomy there is
 # noise in a line someone reads while fixing a rule. CHANGELOG.md is out because its older
 # entries describe what was true when they were written.
-E15_SURFACES="$(cd "$ROOT" && ls -1 README.md docs/*.md skills/*/SKILL.md skills/*/references/*.md agents/*.md \
-                  commands/*.md scripts/*.sh hooks/*.sh 2>/dev/null \
-                | grep -vE '^(CHANGELOG\.md|scripts/doctor\.sh)$')"
+E15_SURFACES="$(printf '%s\n' "${DOC_SURFACES[@]}" "$ROOT"/scripts/*.sh "$ROOT"/hooks/*.sh \
+                | sed "s|^$ROOT/||" | grep -vE '^(CHANGELOG\.md|scripts/doctor\.sh)$')"
 for f in $E15_SURFACES; do
   [ -f "$ROOT/$f" ] || continue
   # Trigger on the CODE as well as the phrase: agy-job.sh renders it as a bare `15)` case
@@ -2135,8 +2234,7 @@ done
 # what actually happened: the --help text kept selling it while the same file's runtime
 # message retracted it three hundred lines away. Verified against the tree: no legitimate
 # line pairs these words today.
-ae_bad="$(grep -rniE 'accept-edits' "$ROOT"/README.md "$ROOT"/docs/*.md "$ROOT"/skills \
-            "$ROOT"/agents "$ROOT"/commands "$ROOT"/scripts 2>/dev/null \
+ae_bad="$(grep -rniE 'accept-edits' "${DOC_SURFACES[@]}" "$ROOT"/scripts 2>/dev/null \
           | grep -iE 'safer|auto-appl' | sed "s|$ROOT/||" | cut -d: -f1-2 | tr '\n' ' ')"
 if [ -z "$ae_bad" ]; then
   echo "ok: no line still sells --mode accept-edits as safer or auto-applying"; PASS=$((PASS+1));
@@ -2884,7 +2982,7 @@ for b in ("agy-delegate", "agy-job", "agy-cost-compare", "agy-doctor", "cloud-de
 
 # regression guard: commands & skill must NOT invoke $CLAUDE_PLUGIN_ROOT/scripts/* — that
 # path expands empty on marketplace installs (issue #11). They must use the bin names.
-for f in glob.glob(p("commands", "*.md")) + [p("skills", "antigravity", "SKILL.md")] + glob.glob(p("skills", "antigravity", "references", "*.md")):
+for f in os.environ["AGENT_SURFACES_NL"].splitlines():
     if os.path.isfile(f):
         t = open(f, encoding="utf-8").read()
         need("CLAUDE_PLUGIN_ROOT}/scripts/" not in t and "CLAUDE_PLUGIN_ROOT/scripts/" not in t,

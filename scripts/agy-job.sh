@@ -74,7 +74,7 @@ case "$cmd" in
   start)
     [ $# -ge 1 ] || die "start needs delegate args, e.g.  start --tier pro \"task\""
     [ -x "$DELEGATE" ] || die "delegate not executable: $DELEGATE"
-    id="$(date +%Y%m%d-%H%M%S)-$$-${RANDOM}"
+    id="$(date +%Y%m%d-%H%M%S)-$$-${RANDOM}"   # hygiene-ok: a job id under the per-user $HOME registry, not a shared temp dir
     jd="$REG/$id"; mkdir -p "$jd"
     { echo "id=$id"; echo "cwd=$PWD"; echo "started=$(date -u +%FT%TZ 2>/dev/null || date)";
       echo "task=$(printf '%s' "${!#}" | tr '\n' ' ' | cut -c1-200)"; } > "$jd/meta"

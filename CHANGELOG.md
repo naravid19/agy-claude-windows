@@ -16,6 +16,15 @@ Changes on top of upstream `0.28.0` (fork point `97f8d13`), 2026-09-27 to 2026-1
 
 ### Added
 
+- **Test tooling from the session retro.** `tests/run-section.sh` runs one section of
+  `tests/run-tests.sh` (`--list` names them) from a copy, so the full suite's minutes are not the
+  price of checking one change. `tests/check-shell-hygiene.py` fails on a temp file named from `$$`
+  and on `cmd > file 2>/dev/null` (both were fixed by hand twice in review); it flags the pre-fix
+  resolver and passes the fixed one. `run-section.sh` reports a section that needs a helper from an earlier section as a failure instead of a pass, and cuts the suite at an `end of setup` marker. The doc-claim guards (exit 15, `--sandbox`, plugin-root,
+  bare `bin/`) now read two shared lists, `DOC_SURFACES` and `AGENT_SURFACES`, defined once; a
+  test fails the next guard that spells its own glob out. `CONTRIBUTING.md` documents the
+  Windows testing traps.
+
 - **`hooks/propagate-yolo.sh`: `--yolo` is inherited from a `bypassPermissions` host.** A
   `PreToolUse(Bash)` hook adds `--yolo` to `agy-delegate` and `agy-job start` calls only while
   Claude Code runs in `bypassPermissions`, so headless agy stops no-opping writes the user
