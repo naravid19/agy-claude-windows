@@ -67,8 +67,10 @@ the cross-model verification value (Claude executing Claude loses both).
 > it would actually run. Below 1.1.11 it does not probe, because there the slash command
 > falls through as prompt text and the model answers as though it had run.
 >
-> The `flash` tiers default to **Gemini 3.8 Flash (High)** / **(Low)** since 0.26.0
-> (3.7 from 0.24.0, 3.5 before). 3.8, 3.7 and 3.6 carry identical list prices —
+> The `flash` tiers default to the **newest Gemini Flash (High)** / **(Low)** that `agy models`
+> lists, read from a cache so a delegation never waits for the slow `agy models` (pinned to
+> Gemini 3.8 Flash until one is cached; an exact `tier_flash` / `--model` wins). Gemini 3.8 has been
+> the default since 0.26.0 (3.7 from 0.24.0, 3.5 before). 3.8, 3.7 and 3.6 carry identical list prices —
 > $0.75 in / $3.75 out / $0.075 cached-in per 1M — under a promotion that **ends
 > 2026-12-31** and then settles at $1.50 / $7.50 / $0.15; 3.5 is $1.50 / $9.00 /
 > $0.15 throughout. Two sources, checked 2026-09-03. Price a run with

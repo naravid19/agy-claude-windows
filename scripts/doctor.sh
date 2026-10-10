@@ -2,6 +2,8 @@
 #
 # doctor.sh — read-only health check for the "Antigravity for Claude Code" plugin.
 # Verifies the agy CLI is installed + authenticated and the plugin is wired up.
+# Its one write: the `agy models` answer it already fetched refreshes the Flash-model
+# cache in the temp dir (scripts/model-resolver.sh), so delegation never has to wait for it.
 #
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -12,6 +14,7 @@ warn() { printf '  ⚠ %s\n' "$*"; }   # advisory; does NOT fail the check
 info() { printf '    %s\n' "$*"; }
 FAIL=0
 . "$HERE/find-python.sh"
+. "$HERE/model-resolver.sh"
 HAVE_PY=0   # set by check 1b; the Python-backed checks below skip without it
 
 # Normalize a model id to lowercase alphanumerics only, so a configured display name
@@ -356,8 +359,9 @@ if command -v agy >/dev/null 2>&1; then
     ok "agy authenticated — $(printf '%s' "$MODELS" | grep -c . ) models available"
     # 2b. configured tier->model names exist (respecting userConfig remaps). agy is
     # multi-model and plan-dependent, so a miss is a WARNING, not a failure.
-    FLASH="${CLAUDE_PLUGIN_OPTION_TIER_FLASH:-Gemini 3.8 Flash (High)}"
-    FLASH_LO="${CLAUDE_PLUGIN_OPTION_TIER_FLASH_LO:-Gemini 3.8 Flash (Low)}"
+    flash_cache_write <<<"$MODELS"   # we hold a fresh answer: refresh the delegate's cache
+    FLASH="${CLAUDE_PLUGIN_OPTION_TIER_FLASH:-$(flash_for_effort High)}"
+    FLASH_LO="${CLAUDE_PLUGIN_OPTION_TIER_FLASH_LO:-$(flash_for_effort Low)}"
     PRO="${CLAUDE_PLUGIN_OPTION_TIER_PRO:-Gemini 3.1 Pro (High)}"
     for m in "$FLASH" "$FLASH_LO" "$PRO"; do
       if model_present "$m"; then

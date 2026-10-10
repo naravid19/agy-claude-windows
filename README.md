@@ -238,9 +238,16 @@ ID=$(scripts/agy-job.sh start --tier pro --dir . "big task"); scripts/agy-job.sh
 
 | tier | model | use for |
 |------|-------|---------|
-| `flash` (default) | Gemini 3.8 Flash (High) | most bulk work |
-| `flash-lo` | Gemini 3.8 Flash (Low) | cheapest, trivial tasks |
+| `flash` (default) | newest Gemini Flash (High) in `agy models` — Gemini 3.8 Flash (High) until one is cached | most bulk work |
+| `flash-lo` | newest Gemini Flash (Low) — Gemini 3.8 Flash (Low) until one is cached | cheapest, trivial tasks |
 | `pro` | Gemini 3.1 Pro (High) | harder reasoning / cross-checks |
+
+The two Flash tiers follow `agy models`, so a new Flash release becomes the default without a
+plugin update. `agy models` is slow (9.4 s measured: it waits on agy's MCP servers), so a
+delegation never waits for it: it reads a cache in the temp dir (`agy-delegate-flash.cache`,
+12 h) and, when that is missing or stale, starts a detached refresh and uses the cached or
+pinned model for that call. `agy-doctor` refreshes the cache too. An exact `tier_flash` /
+`tier_flash_lo`, `default_model` or `--model` always wins, and `pro` is never resolved.
 
 **agy is multi-model.** Tiers default to Gemini, but you can use any model `agy models` lists
 (Claude / GPT on plans that expose them): pass `--model "<exact name>"`, or set it persistently
