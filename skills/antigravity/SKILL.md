@@ -237,7 +237,9 @@ commands** (`--yolo` grants write + terminal):
   denial text names the rule and offers `--yolo` as the *alternative*. `--yolo` auto-approves
   **all** tools and is what you need when no rule covers the target, or for web search / URL
   reads (agy 1.1.28 made those ask first; the narrow rule is `read_url(<target>)`) / Vertex AI
-  Search / terminal. Not verified below 1.1.9; a glob form (`write_file(/path/**)`) was
+  Search / terminal. In `bypassPermissions` sessions the plugin's `PreToolUse` hook adds
+  `--yolo` to the call for you (inherits what the user already granted); pass `--no-yolo`
+  to keep one call unapproved. Not verified below 1.1.9; a glob form (`write_file(/path/**)`) was
   reported not to match. `<dir>` is a placeholder: left as written the rule grants nothing
   on any version — exit 15 with the rule visibly present in the file. Separately, and only
   for `command(...)`, an entry naming no command (`command(time)`, comment-only, `()`)

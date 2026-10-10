@@ -25,6 +25,8 @@
 #       --timeout <dur>              Print-mode timeout, e.g. 10m (default: 5m)
 #       --yolo                       Auto-approve all tool permissions (DANGEROUS). Reaches agy as
 #                                    --dangerously-skip-permissions; agy 1.1.25 rejects a literal --yolo
+#       --no-yolo                    Never auto-approve, even with --yolo (either order). Opts one call
+#                                    out of the hooks/propagate-yolo.sh rewrite in bypassPermissions
 #       --sandbox                    Run agent with terminal sandbox restrictions
 #       --digest                     Append a digest-only output contract to the prompt
 #                                    (ingest digests, not raw dumps — the biggest cost lever)
@@ -76,6 +78,7 @@ TIMEOUT="${CLAUDE_PLUGIN_OPTION_TIMEOUT:-5m}"
 TIER_EXPLICIT=0
 MODEL=""
 YOLO=0
+NO_YOLO=0
 SANDBOX=0
 DIGEST=0
 MODE=""
@@ -236,6 +239,7 @@ while [ $# -gt 0 ]; do
     -d|--dir)       need "$#" "$1"; ADD_DIRS+=("$2"); shift 2 ;;
     --timeout)      need "$#" "$1"; TIMEOUT="$2"; shift 2 ;;
     --yolo)         YOLO=1; shift ;;
+    --no-yolo)      NO_YOLO=1; shift ;;              # wins over --yolo, whatever the order
     --sandbox)      SANDBOX=1; shift ;;
     --digest)       DIGEST=1; shift ;;               # ask agy for a digest-only reply
     --mode)         need "$#" "$1"; MODE="$2"; shift 2
@@ -255,6 +259,7 @@ while [ $# -gt 0 ]; do
 done
 
 [ -n "$PROMPT" ] || die "no prompt given (pass a string, or '-' to read stdin)"
+[ "$NO_YOLO" -eq 1 ] && YOLO=0
 # --print-command is a dry run (introspection), so it doesn't require agy on PATH.
 if [ "$PRINT_CMD" -ne 1 ] && ! command -v agy >/dev/null 2>&1; then
   echo "agy-delegate: 'agy' not found on PATH — install the Antigravity CLI first" >&2
