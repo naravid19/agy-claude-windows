@@ -245,6 +245,9 @@ commands** (`--yolo` grants write + terminal):
   `write_file()`. If a user reports a rule that "should" work, have them run `agy-doctor`
   before changing anything else.
   Run write tasks on a branch and verify with `git status`.
+  **In a `bypassPermissions` session the plugin's `PreToolUse` hook adds `--yolo` to
+  delegate and background-job calls for you** (it inherits what the user already granted and
+  never escalates a prompting session); pass `--no-yolo` to keep one call unapproved. Claude Code may
   prompt for or block `--dangerously-skip-permissions` — approve it or pre-allow
   `Bash(*agy-delegate*)`. Always verify files actually changed **in the workspace** with
   `git status` (the wrapper maps BOTH denial shapes — the soft deny, 1.1.3+ and again from

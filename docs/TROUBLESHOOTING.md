@@ -132,6 +132,10 @@ whether the run admits it ([#10](https://github.com/yuting0624/antigravity-for-c
   (agy 1.1.25 rejects a literal `--yolo`) — works across all agy versions,
   but auto-approves **all** tools, not just the write. Required anyway for web search / URL reads
   (since agy 1.1.28; or a `read_url(<target>)` rule) / Vertex AI Search / terminal when no rule covers them. (`--mode accept-edits` is NOT a headless write grant. Measured on agy 1.1.13 — where the flag is actually applied, since 1.1.12 fixed `--mode` being ignored in headless `-p` entirely — the write is denied exactly like one without it. Earlier notes here said "soft-denied on 1.1.3"; on a build where the flag was never applied, that observation could not tell a denial apart from the flag doing nothing.)
+- In a `bypassPermissions` session the plugin adds `--yolo` itself (`hooks/propagate-yolo.sh`).
+  If a delegation still hits exit 15 there, check that the hook is enabled (`auto_yolo` not
+  `off`) and that the call does not carry `--no-yolo`; in any other permission mode nothing is
+  added by design.
 - Claude Code may prompt for (or in auto-mode, block) `--dangerously-skip-permissions` —
   approve it, or pre-allow `Bash(*agy-delegate*)` in your permission settings.
 - Run write tasks on a **dedicated branch**. `--sandbox` is *not* containment: Measured on macOS with agy 1.1.19: with `--yolo`, `--sandbox` changed nothing — a write to an absolute path OUTSIDE `--dir` succeeded (rc 0), `id` ran and returned a real uid, and `curl https://example.com` returned 200. agy's own help says "terminal restrictions"; whatever it restricts, it is not those, and not in this combination. Not tested on Linux.

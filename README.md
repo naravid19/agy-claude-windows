@@ -312,6 +312,11 @@ Delegation doesn't save money by itself — these do (also in the skill):
     made fetching URLs ask first; the narrow rule is `read_url(<target>)`) / Vertex AI Search /
     terminal tools. Since agy 1.1.27 the wrapper names the refused tool from the envelope's
     `denied_actions` (measured on 1.2.0).
+    When Claude Code itself runs in `bypassPermissions` mode, a `PreToolUse` hook adds `--yolo`
+    to `agy-delegate` / `agy-job start` for you, since you already allowed unattended tool use
+    and headless agy would otherwise no-op the write. It never escalates a session that still
+    prompts. Opt one call out with `--no-yolo` (wins over `--yolo`), or turn the hook off with
+    the `auto_yolo` option.
   
   Confirmed on **agy 1.1.9** by a controlled A/B ([#37](https://github.com/yuting0624/antigravity-for-claude-code/issues/37)):
   a covered target wrote with no flag; an uncovered one came back `PERMISSION_DENIED` with
