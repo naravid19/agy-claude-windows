@@ -1,3 +1,5 @@
+<a id="readme-top"></a>
+
 <div align="center">
 
 # 🛰️ Antigravity for Claude Code
@@ -6,12 +8,28 @@
 ![Antigravity for Claude Code — Claude directs, Gemini executes](docs/hero.png)
 Claude conducts the judgement; Gemini does the heavy lifting — intelligent model routing across the SDLC.
 
-[![CI](https://github.com/yuting0624/antigravity-for-claude-code/actions/workflows/ci.yml/badge.svg)](https://github.com/yuting0624/antigravity-for-claude-code/actions/workflows/ci.yml)
+[![CI](https://github.com/naravid19/agy-claude-windows/actions/workflows/ci.yml/badge.svg)](https://github.com/naravid19/agy-claude-windows/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Windows fork](https://img.shields.io/badge/fork-Windows%20(Git%20Bash)-0078D6?logo=windows&logoColor=white)](#-about-this-fork)
 ![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-5A4FCF?logo=claudecode&logoColor=#D97757)
 [![Antigravity CLI](https://img.shields.io/badge/Antigravity%20CLI-agy-4285F4?logo=googlegemini&logoColor=white)](https://antigravity.google/docs/cli-using)
 
 </div>
+
+---
+
+<details open>
+<summary><b>Table of contents</b></summary>
+
+1. [Quick look](#-quick-look)
+2. [About this fork](#-about-this-fork)
+3. [Why](#-why) · [What it does](#-what-it-does) · [Measured results](#-measured-results)
+4. [Install](#-install) · [Windows requirements](#-windows-requirements)
+5. [Slash commands](#-slash-commands)
+6. [Contributing](#-contributing)
+7. [Acknowledgments](#-acknowledgments) · [Contact](#-contact)
+
+</details>
 
 ---
 
@@ -20,6 +38,28 @@ Claude conducts the judgement; Gemini does the heavy lifting — intelligent mod
 ![Antigravity for Claude Code demo](docs/demo.gif)
 
 Claude stays the conductor; the bulk, token-heavy read ran on cheaper Gemini, and Claude verified the result.
+
+---
+
+## 🪟 About this fork
+
+This repository, [`naravid19/agy-claude-windows`](https://github.com/naravid19/agy-claude-windows), is a personal fork of [`yuting0624/antigravity-for-claude-code`](https://github.com/yuting0624/antigravity-for-claude-code). It forked at upstream `0.28.0` (`97f8d13`) with one goal: make the plugin work on **native Windows under Git Bash**, with no WSL and no ConPTY bridge. Everything else is upstream's, unchanged.
+
+What the fork adds:
+
+- **Windows runs natively.** agy ≥ 1.2.11 under Git for Windows, a `windows-latest` CI job, and LF pinned in `.gitattributes` ([ADR-0001](docs/adr/0001-windows-via-git-bash-no-pty-bridge.md)).
+- **Prompts go over stdin** as a `stream-json` event, past Windows' 32,767-character command-line cap ([ADR-0002](docs/adr/0002-prompt-over-stdin-everywhere.md)).
+- **Tools are called by `${CLAUDE_PLUGIN_ROOT}/bin/<tool>`**, because Claude Code on Windows does not put plugin `bin/` on `PATH` ([ADR-0003](docs/adr/0003-invoke-bin-by-plugin-root-path.md)).
+- **A Python that actually runs** is found (`python3`, `python`, `py -3`), skipping the Microsoft Store alias stub.
+- **UTF-8 everywhere**, not the locale code page, so Thai Windows (cp874) behaves.
+- **`agy-job cancel` kills the whole native process tree**, and `doctor` checks Git Bash, agy and Python.
+- **A tighter delegate gate**: a variable can no longer stand in for the wrapper's path.
+
+The full list, with commits, is under [`[Unreleased]` in the CHANGELOG](CHANGELOG.md). Each change here is tested by `tests/run-tests.sh`, which also runs on Ubuntu and on macOS `/bin/bash` 3.2 in CI.
+
+**Built with:** Bash (3.2-compatible) · Python 3 standard library only · [Antigravity CLI](https://antigravity.google/docs/cli-using) (`agy`) · GitHub Actions on Ubuntu, macOS and Windows.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 ---
 
@@ -71,7 +111,7 @@ On a **large** ADK multi-agent build (+ `adk eval`), same task / same model, 3 w
 
 In Claude Code:
 ```
-/plugin marketplace add yuting0624/antigravity-for-claude-code
+/plugin marketplace add naravid19/agy-claude-windows
 /plugin install antigravity@antigravity-for-claude-code
 /antigravity:setup        # verifies agy is installed + authenticated
 ```
@@ -302,8 +342,8 @@ prices.json       Vertex rate config (verify before quoting)
 
 **Local development** (hack on the plugin — loads live files, `$CLAUDE_PLUGIN_ROOT` resolves):
 ```bash
-git clone https://github.com/yuting0624/antigravity-for-claude-code ~/antigravity-for-claude-code
-claude --plugin-dir ~/antigravity-for-claude-code
+git clone https://github.com/naravid19/agy-claude-windows ~/agy-claude-windows
+claude --plugin-dir ~/agy-claude-windows
 ```
 
 **Tests** (no dependencies; stubs `agy`):
@@ -317,11 +357,29 @@ bash tests/run-tests.sh
 
 ## 🤝 Contributing
 
-Early-stage and MIT — issues, PRs, and ⭐ all welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) and the [`good first issue`](https://github.com/yuting0624/antigravity-for-claude-code/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) list.
+Early-stage and MIT. The fork's scope is Windows support; general features and fixes belong [upstream](https://github.com/yuting0624/antigravity-for-claude-code) (its [`good first issue`](https://github.com/yuting0624/antigravity-for-claude-code/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) list is there). Before changing code here, read [CONTRIBUTING.md](CONTRIBUTING.md): run `bash tests/run-tests.sh` and `shellcheck scripts/*.sh tests/*.sh`, and add a line to the CHANGELOG's `[Unreleased]` section.
 
 **Automated review:** PRs get two reviews in CI on top of the usual tests/shellcheck — a Claude review carrying this repo's own contracts, and [quorum-review](https://github.com/yuting0624/quorum-review) — see the section above.
 
 **From a fork:** quorum doesn't run at all. The Claude review runs only once a maintainer **with write access** applies the `claude-review` label — the label alone isn't authorisation, since triage collaborators can apply labels too — and it re-runs on every later push, so an approved review can't go stale behind new commits. Your code never reaches the runner at all — the reviewer sees it as a diff (`gh pr diff`), with this repository's base checkout for context. Nothing of yours is fetched or executed.
+
+---
+
+## 🙏 Acknowledgments
+
+- [Yuting Lin (`yuting0624`)](https://github.com/yuting0624) and the contributors to [`antigravity-for-claude-code`](https://github.com/yuting0624/antigravity-for-claude-code), who wrote the plugin this fork is built on. The MIT [LICENSE](LICENSE) is theirs and is unchanged.
+- The [Antigravity CLI docs](https://antigravity.google/docs/home/) and the [Claude Code docs](https://code.claude.com/docs/en/overview), the reference for the fork's design decisions.
+- [Best-README-Template](https://github.com/othneildrew/Best-README-Template) for the layout of the fork sections of this README, and [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) for the CHANGELOG format.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+---
+
+## 📬 Contact
+
+**naravid19** — [github.com/naravid19](https://github.com/naravid19) · Project: [github.com/naravid19/agy-claude-windows](https://github.com/naravid19/agy-claude-windows)
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 ---
 

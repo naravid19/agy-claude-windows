@@ -3,6 +3,90 @@
 All notable changes to **Antigravity for Claude Code**. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions are in `.claude-plugin/plugin.json`.
 
+This is the Windows fork, [`naravid19/agy-claude-windows`](https://github.com/naravid19/agy-claude-windows).
+Its own changes are collected under `[Unreleased]` below, which follows
+[Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/) (Added / Changed / Security / Fixed,
+newest first). The fork has not cut a version of its own: `.claude-plugin/plugin.json` still says
+`0.28.0`, and everything from `## 0.28.0` down is the upstream history, kept verbatim.
+
+## [Unreleased]
+
+Changes on top of upstream `0.28.0` (fork point `97f8d13`), 2026-09-27 to 2026-10-10.
+[Full diff](https://github.com/naravid19/agy-claude-windows/compare/97f8d13...master).
+
+### Added
+
+- **Native Windows support under Git Bash.** The plugin runs directly in Git for Windows with
+  agy ≥ 1.2.11, with no WSL or ConPTY bridge (ADR-0001). CI gained a `windows-latest` job that
+  runs `tests/run-tests.sh` under Git Bash, and `.gitattributes` pins `*.sh`, `bin/*` and `*.py`
+  to LF so a `core.autocrlf=true` checkout cannot inject CRLF. (a75e135)
+- **`scripts/find-python.sh`**, sourced by every entrypoint and hook that needs Python. It tries
+  `python3`, `python`, then `py -3`, judging each by actually running it. With none,
+  `agy-migrate`, `measure-session` and `agy-trace` exit `16` naming all three candidates, the
+  delegate gate fails closed, and `doctor` says how to fix it. (62a9008)
+- **The prompt goes to agy over stdin as one `stream-json` event** whenever the installed agy
+  advertises `--input-format`; older agy keeps the `-p` argv path (ADR-0002). Windows caps a
+  whole command line at 32,767 characters, so a 40K prompt used to fail as exit `126` and be
+  misreported as `AGY_FAILED`. `--print-command` marks the stream-mode command as reading its
+  prompt from stdin, because pasting it into a shell would otherwise hang agy. (d86c491, 36127c6,
+  e02ea89)
+- **Bin tools are invoked by `"${CLAUDE_PLUGIN_ROOT}/bin/<tool>"`** in every command, agent and
+  skill, because Claude Code on Windows does not put a plugin's `bin/` on the Bash tool's `PATH`
+  (ADR-0003). `tests/check-bin-invocation.py` fails on a bare tool name. (80360c4, 6ddbc3a)
+- **`agy-job cancel` kills the native Windows process tree**, not just the MSYS wrapper. (be2879c,
+  e040e6d, b13209e)
+- **`agy-media` accepts Windows prompt paths.** `agy-migrate` skips symlinks it cannot create
+  without Developer Mode and exits `19` after printing a notice. (e1e1bc0, d0df2ed)
+- **`doctor` checks the Windows prerequisites:** Git Bash, agy ≥ 1.2.11 and a working Python.
+  It does not mistake `OS=Windows_NT` inherited under WSL for native Windows. (8fe4bfc, 5329cf1)
+- **`tests/check-open-encoding.py`** fails any Python `open()` without `encoding=`, and
+  `check-embedded-python.py` also flags non-ASCII in a `-c` body. (6ff6963)
+
+### Changed
+
+- **Every Python `open()` and every stream is UTF-8**, not the locale code page, in `scripts/`,
+  `hooks/`, `bin/`, `tests/` and `ci.yml`. `doctor`'s embedded `-c` programs are ASCII-only. (6ff6963)
+- **`agy-delegate -` keeps a prompt's trailing newlines.** stdin is read with
+  `IFS= read -r -d ''` on every platform instead of `$(cat)`, and the `iconv -c` scrub of invalid
+  UTF-8 runs everywhere instead of only on Windows. A prompt piped in on Linux or macOS now
+  arrives byte-identical. (d86c491, ba8ed24, 1e84ff1)
+- **A `stream-json` run is only answered by an `event: result` line** (or the legacy event-less
+  envelope). A stream with none exits `3` instead of printing raw NDJSON. The stream-json bypass
+  list is `/model` and `/usage`, as ADR-0002 says. (ba8ed24)
+- **On native Windows the injected SessionStart policy names `agy-delegate` by quoted absolute
+  path**, since no plugin `bin/` is on `PATH`. Elsewhere the bare name is unchanged. (ad3bc06)
+- README, `docs/TROUBLESHOOTING.md` and `docs/POC-PLAYBOOK.md` describe the Windows setup and no
+  longer say commands call bare names on `PATH`. (8fe4bfc, ad3bc06)
+
+### Security
+
+- **The delegate gate no longer lets a variable stand in for the wrapper path.** It takes only a
+  literal absolute `bin/` path and does not expand variables, so a single-quoted
+  `'$CLAUDE_PLUGIN_ROOT/bin/agy-delegate'` cannot run a cwd-relative file. A `$` anywhere in a
+  path-form wrapper token is rejected: bash expands `$X` after `..` has been collapsed, so
+  `bin/$X/../agy-delegate` used to vet as the real wrapper while running something else.
+  (ba8ed24, 5c79d84)
+
+### Fixed
+
+- **The Microsoft Store `python3` stub fooled every `command -v python3` guard.** On a python.org
+  install `python3` is an alias that passes `command -v` and exits `49`. JSON mode leaked the raw
+  envelope with no `AGY_USAGE`, the gate failed closed on every command, the nudge hook went
+  silent and `measure-session` and `agy-migrate` crashed. (62a9008)
+- **Non-UTF-8 code pages (cp874, cp1252, `LC_ALL=C`) made scripts raise or garble text**, and
+  because each call sat behind `2>/dev/null`, `doctor`'s stdio-MCP and allow-rule checks and
+  `cost-compare`'s price lookup quietly found nothing. (6ff6963)
+- **The Windows CI job failed with MSYS2 DLL `127`** because test shims were symlinks that
+  duplicated binaries without their DLLs. `agy-migrate` now reads `HOME` from `os.environ` and
+  writes generated rules with explicit LF. (a75e135)
+- **`agy-job cancel` printed "cancelled" after killing only the MSYS wrapper** when no Windows pid
+  resolved. It now exits `1` with a message. (5c79d84, ba8ed24)
+- **`agy-migrate` hid the Developer Mode notice** whenever a step also failed. The notice now
+  prints first, and exit `17` still outranks `19`. (ad3bc06)
+- **A `&` in the install path leaked the `@@AGY_DELEGATE@@` placeholder** into the model-visible
+  policy: bash 5.2 reads an unquoted `&` in a `${//}` replacement as the matched text.
+  `patsub_replacement` is turned off for that substitution. (327fb10)
+
 ## 0.28.0
 
 - **`AGY_USAGE` now names the model that ran, the tier it was picked from, and agy's own

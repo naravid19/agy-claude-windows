@@ -44,7 +44,10 @@ shellcheck scripts/*.sh tests/*.sh   # CI gates on --severity=error
 - If you touch a manifest, `python3 -c "import json; json.load(open('.claude-plugin/plugin.json', encoding='utf-8'))"` (and `marketplace.json`, `prices.json`) still parse.
 - **Keep the skill honest.** [`skills/antigravity/SKILL.md`](skills/antigravity/SKILL.md) is the plugin's brain — if behavior changes, update it. Don't claim a capability the code doesn't have.
 - **Cost numbers are estimates.** If you quote figures, say so and point at `prices.json`.
-- Add a line to [`CHANGELOG.md`](CHANGELOG.md). There is no "Unreleased" section: a fix goes
+- Add a line to [`CHANGELOG.md`](CHANGELOG.md). **In the Windows fork** (`naravid19/agy-claude-windows`)
+  the fork's own changes go under `## [Unreleased]` at the top, in the Added / Changed / Security /
+  Fixed groups of [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/); the fork cuts no
+  versions of its own. **For a PR to upstream**, there is no "Unreleased" section: a fix goes
   under a new `## x.y.z` heading for the next patch (the maintainer bumps
   `.claude-plugin/plugin.json` and `skills/antigravity/SKILL.md` to match — the suite pins the
   two together); a behaviour change bumps the version in its own PR.
