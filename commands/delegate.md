@@ -16,7 +16,8 @@ Do this:
    `permissions.allow` in `~/.gemini/antigravity-cli/settings.json` (recursive beneath
    `<dir>`, no flag needed — substitute a real path for `<dir>`; if a rule is already
    there and the write is still denied, `agy-doctor` checks whether agy can parse it). Otherwise pass **`--yolo`**, which auto-approves all tools and
-   is what web search / URL reads (agy 1.1.28+) / Vertex AI Search / terminal need. Without a grant,
+   is what web search / URL reads (agy 1.1.28+) / Vertex AI Search / terminal need (in a
+   `bypassPermissions` session the plugin's hook adds it for you; `--no-yolo` opts a call out). Without a grant,
    headless agy leaves your workspace untouched, and since 1.1.3 the run says so on stderr (it
    describes / scratch-diverts / soft-denies / fails outright depending on version; issue #10). `--mode
    accept-edits` is not a grant either: measured on agy 1.1.13, where the flag is applied

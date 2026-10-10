@@ -20,8 +20,11 @@ Changes on top of upstream `0.28.0` (fork point `97f8d13`), 2026-09-27 to 2026-1
   `PreToolUse(Bash)` hook adds `--yolo` to `agy-delegate` and `agy-job start` calls only while
   Claude Code runs in `bypassPermissions`, so headless agy stops no-opping writes the user
   already allowed (issue #10). It never escalates a prompting session, never returns a
-  `permissionDecision`, and fails open. The wrapper may be a quoted absolute path with spaces
-  (ADR-0003), and `--yolo` lands after the closing quote. New `--no-yolo` flag (wins over
+  `permissionDecision`, and fails open. It splits the command line like a shell, so the wrapper
+  is found in command position (`cd d && agy-delegate …`, `FOO=1 agy-delegate …`, pipelines,
+  subshells, several per line), quoted text is never read as a command or a flag, and a quoted
+  absolute path with spaces (ADR-0003) gets `--yolo` after the closing quote. `bash -c "…"` is
+  not covered. New `--no-yolo` flag (wins over
   `--yolo`) and `auto_yolo` plugin option opt out. Adapted from the hook in upstream 0.20.1.
 - **Native Windows support under Git Bash.** The plugin runs directly in Git for Windows with
   agy ≥ 1.2.11, with no WSL or ConPTY bridge (ADR-0001). CI gained a `windows-latest` job that

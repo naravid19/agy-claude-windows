@@ -1074,14 +1074,17 @@ PROP="$HOOKS/propagate-yolo.sh"
 # yolo_cmd <permission_mode|-> <command> : the command the hook would run, or "" when it
 # leaves the call alone. Payload built with Python so quoting in <command> is not our problem;
 # the command goes in on stdin, because MSYS rewrites /c/... style argv and env values.
-yolo_cmd() {
+yolo_payload() { # mode command -> the PreToolUse payload on stdout
   printf '%s' "$2" | YC_MODE="$1" python3 -c 'import json,os,sys
 d={"tool_name":"Bash","tool_input":{"command":sys.stdin.read(),"description":"d"}}
 if os.environ["YC_MODE"]!="-": d["permission_mode"]=os.environ["YC_MODE"]
-print(json.dumps(d))' | "$PROP" 2>/dev/null \
+print(json.dumps(d))'
+}
+yolo_cmd() {
+  yolo_payload "$1" "$2" | "$PROP" 2>/dev/null \
     | python3 -c 'import json,sys
 t=sys.stdin.read()
-if t.strip(): print(json.loads(t)["hookSpecificOutput"]["updatedInput"]["command"])'
+if t.strip(): sys.stdout.buffer.write(json.loads(t)["hookSpecificOutput"]["updatedInput"]["command"].encode("utf-8"))'
 }
 yolo_expect() { # desc  mode  command  want ("" = untouched)
   local got; got="$(yolo_cmd "$2" "$3")"
@@ -1097,6 +1100,24 @@ yolo_expect "bypass: double-quoted absolute path with a space (--yolo after the 
 yolo_expect "bypass: single-quoted absolute path with a space" bypassPermissions "'/c/Users/x y/p/bin/agy-delegate' \"t\"" "'/c/Users/x y/p/bin/agy-delegate' --yolo \"t\""
 yolo_expect "bypass: wrapper after a pipe" bypassPermissions 'cat f | agy-delegate -' 'cat f | agy-delegate --yolo -'
 yolo_expect "bypass: quoted agy-job start with a space in the path" bypassPermissions '"/c/a b/bin/agy-job" start "t"' '"/c/a b/bin/agy-job" start --yolo "t"'
+# the wrapper is a command only in command position, wherever that is on the line
+yolo_expect "bypass: after cd &&" bypassPermissions 'cd d && agy-delegate "t"' 'cd d && agy-delegate --yolo "t"'
+yolo_expect "bypass: after ;" bypassPermissions 'cd d; agy-delegate "t"' 'cd d; agy-delegate --yolo "t"'
+yolo_expect "bypass: after ||" bypassPermissions 'false || agy-delegate "t"' 'false || agy-delegate --yolo "t"'
+yolo_expect "bypass: agy-job start after cd &&" bypassPermissions 'cd d && agy-job start "t"' 'cd d && agy-job start --yolo "t"'
+yolo_expect "bypass: env assignment prefix" bypassPermissions 'AGY_USAGE_LOG=/x/log agy-delegate "t"' 'AGY_USAGE_LOG=/x/log agy-delegate --yolo "t"'
+yolo_expect "bypass: time prefix" bypassPermissions 'time agy-delegate "t"' 'time agy-delegate --yolo "t"'
+yolo_expect "bypass: subshell" bypassPermissions '(agy-delegate "t")' '(agy-delegate --yolo "t")'
+yolo_expect "bypass: two wrappers, both rewritten" bypassPermissions 'agy-delegate a & agy-delegate b' 'agy-delegate --yolo a & agy-delegate --yolo b'
+yolo_expect "bypass: heredoc prompt on the wrapper line" bypassPermissions $'agy-delegate - <<\'EOF\'\nbody\nEOF' $'agy-delegate --yolo - <<\'EOF\'\nbody\nEOF'
+yolo_expect "bypass: heredoc body mentioning the wrapper untouched" bypassPermissions $'cat <<\'EOF\'\nagy-delegate hi\nEOF' ''
+# quoted text is data: never a command position, never a --yolo flag
+yolo_expect "bypass: wrapper named inside quoted text untouched" bypassPermissions 'echo "a | agy-delegate b"' ''
+yolo_expect "bypass: wrapper named in a commit message untouched" bypassPermissions 'git commit -m "fix | agy-delegate x"' ''
+yolo_expect "bypass: prompt that mentions --yolo still gets the flag" bypassPermissions 'agy-delegate "explain what --yolo does"' 'agy-delegate --yolo "explain what --yolo does"'
+yolo_expect "bypass: stdin text mentioning --yolo still gets the flag" bypassPermissions 'echo "x --yolo" | agy-delegate -' 'echo "x --yolo" | agy-delegate --yolo -'
+yolo_expect "bypass: wrapper-like names untouched" bypassPermissions 'agy-delegate-foo x; agy-jobs y' ''
+yolo_expect "bypass: unbalanced quote fails open" bypassPermissions 'agy-delegate "t' ''
 yolo_expect "bypass: explicit --yolo left alone" bypassPermissions 'agy-delegate --yolo "t"' ''
 yolo_expect "bypass: explicit --no-yolo left alone" bypassPermissions 'agy-delegate --no-yolo "t"' ''
 yolo_expect "bypass: unrelated command untouched" bypassPermissions 'ls -la' ''
@@ -1104,19 +1125,18 @@ for m in default plan acceptEdits dontAsk; do
   yolo_expect "mode $m never gets --yolo" "$m" 'agy-delegate "t"' ''
 done
 yolo_expect "no permission_mode field -> untouched" - 'agy-delegate "t"' ''
-out=$(python3 -c 'import json;print(json.dumps({"tool_name":"Bash","permission_mode":"bypassPermissions","tool_input":{"command":"agy-delegate \"t\""}}))' \
-  | CLAUDE_PLUGIN_OPTION_AUTO_YOLO=off "$PROP" 2>/dev/null)
+out=$(yolo_payload bypassPermissions 'agy-delegate "t"' | CLAUDE_PLUGIN_OPTION_AUTO_YOLO=off "$PROP" 2>/dev/null)
 if [ -z "$out" ]; then echo "ok: auto_yolo=off disables the hook"; PASS=$((PASS+1));
 else echo "FAIL: hook fired while auto_yolo=off"; FAIL=$((FAIL+1)); fi
-out=$(python3 -c 'import json;print(json.dumps({"tool_name":"Bash","permission_mode":"bypassPermissions","tool_input":{"command":"agy-delegate \"t\""}}))' | "$PROP" 2>/dev/null); rc=$?
-if [ "$rc" = 0 ] && ! has "permissionDecision\"" "$out" && has "updatedInput" "$out"; then
+out=$(yolo_payload bypassPermissions 'agy-delegate "t"' | "$PROP" 2>/dev/null); rc=$?
+if [ "$rc" = 0 ] && ! has "permissionDecision" "$out" && has "updatedInput" "$out"; then
   echo "ok: hook rewrites only (never returns a permissionDecision)"; PASS=$((PASS+1));
 else echo "FAIL: hook output wrong or carries a permissionDecision (rc=$rc)"; FAIL=$((FAIL+1)); fi
 out=$(printf '%s' 'not json agy-delegate' | "$PROP" 2>/dev/null); rc=$?
 if [ "$rc" = 0 ] && [ -z "$out" ]; then echo "ok: unparseable payload fails open"; PASS=$((PASS+1));
 else echo "FAIL: unparseable payload not fail-open (rc=$rc out=$out)"; FAIL=$((FAIL+1)); fi
 # the delegate subagent's own gate must still pass the rewritten command
-out=$(python3 -c 'import json;print(json.dumps({"tool_input":{"command":"agy-delegate --yolo -t flash \"hi\""}}))' | "$HOOKS/validate-delegate-bash.sh" >/dev/null 2>&1); rc=$?
+yolo_payload - 'agy-delegate --yolo -t flash "hi"' | "$HOOKS/validate-delegate-bash.sh" >/dev/null 2>&1; rc=$?
 check "gate allows the command the hook rewrites to" 0 "$rc"
 # --no-yolo wins over --yolo whatever the order, and nothing reaches agy
 out=$("$DELEGATE" --print-command --no-yolo --yolo "hi" 2>/dev/null); rc=$?
@@ -2705,7 +2725,7 @@ m = re.search(r"\$\{CLAUDE_PLUGIN_ROOT\}/([^\"']+\.sh)", agent)
 need(bool(m), "agent PreToolUse gate path not found")
 if m: need(os.path.isfile(p(m.group(1))), "agent gate references missing file: " + m.group(1))
 
-for s in ("hooks/check-agy.sh", "hooks/inject-policy.sh", "hooks/validate-delegate-bash.sh", "hooks/nudge-delegation.sh"):
+for s in ("hooks/check-agy.sh", "hooks/inject-policy.sh", "hooks/validate-delegate-bash.sh", "hooks/nudge-delegation.sh", "hooks/propagate-yolo.sh"):
     need(os.access(p(s), os.X_OK), "not executable: " + s)
 
 # bin/ entrypoints exist + executable (issue #11: $CLAUDE_PLUGIN_ROOT isn't exported

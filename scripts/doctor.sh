@@ -470,7 +470,7 @@ for s in agy-delegate.sh agy-cost-compare.sh cloud-debug.sh agy-trace.sh agy-med
   fi
 done
 
-# 4b. SessionStart hooks executable
+# 4b. hooks executable
 for h in check-agy.sh inject-policy.sh validate-delegate-bash.sh nudge-delegation.sh propagate-yolo.sh; do
   if [ -x "$ROOT/hooks/$h" ]; then ok "hooks/$h executable"; else
     bad "hooks/$h not executable"; info "fix: chmod +x \"$ROOT/hooks/$h\""
