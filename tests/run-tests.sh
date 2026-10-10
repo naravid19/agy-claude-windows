@@ -1547,6 +1547,27 @@ out=$(PATH="$NOPY:$PATH" STUB_JSON_CAPABLE=1 STUB_MODE=args "$DELEGATE" "hi" 2>/
 if [ "$rc" = 0 ] && ! has "--output-format" "$out"; then echo "ok: no Python: delegate falls back to plain text"; PASS=$((PASS+1));
 else echo "FAIL: no Python: delegate asked for JSON it cannot unwrap (rc=$rc)"; FAIL=$((FAIL+1)); fi
 
+echo "== skill structure (SKILL.md is read in full on every invocation; detail lives in references/) =="
+SK="$ROOT/skills/antigravity"
+n=$(wc -l < "$SK/SKILL.md" | tr -d ' ')
+if [ "$n" -le 250 ]; then echo "ok: SKILL.md is $n lines (<= 250)"; PASS=$((PASS+1)); else echo "FAIL: SKILL.md grew to $n lines (limit 250) - move detail to references/"; FAIL=$((FAIL+1)); fi
+for r in "$SK"/references/*.md; do
+  if grep -qF "references/$(basename "$r")" "$SK/SKILL.md"; then echo "ok: SKILL.md points at $(basename "$r")"; PASS=$((PASS+1));
+  else echo "FAIL: $(basename "$r") is not named in SKILL.md, so nothing will load it"; FAIL=$((FAIL+1)); fi
+done
+for ref in $(grep -o 'references/[a-z-]*\.md' "$SK/SKILL.md" | sort -u); do
+  if [ -f "$SK/$ref" ]; then echo "ok: $ref exists"; PASS=$((PASS+1)); else echo "FAIL: SKILL.md points at missing $ref"; FAIL=$((FAIL+1)); fi
+done
+# what must stay in the file that is always loaded: the exit-code table, the quoted
+# plugin-root invocation (ADR-0003), and the cost rules
+for code in 10 11 12 13 14 15; do
+  if grep -q "\`$code\`" "$SK/SKILL.md"; then echo "ok: SKILL.md still explains exit $code"; PASS=$((PASS+1)); else echo "FAIL: SKILL.md lost exit code $code"; FAIL=$((FAIL+1)); fi
+done
+if grep -qF '"${CLAUDE_PLUGIN_ROOT}/bin/agy-delegate"' "$SK/SKILL.md"; then echo "ok: SKILL.md keeps the quoted plugin-root invocation"; PASS=$((PASS+1)); else echo "FAIL: SKILL.md lost the quoted plugin-root invocation (ADR-0003)"; FAIL=$((FAIL+1)); fi
+for rule in 1 2 3 4 5 6 7 8; do
+  if grep -qE "^$rule\. \*\*" "$SK/SKILL.md"; then echo "ok: SKILL.md keeps cost rule $rule"; PASS=$((PASS+1)); else echo "FAIL: SKILL.md lost cost rule $rule"; FAIL=$((FAIL+1)); fi
+done
+
 echo "== bin/ entrypoints (issue #11: \$CLAUDE_PLUGIN_ROOT not on model-run Bash) =="
 BIN="$ROOT/bin"
 for b in agy-delegate agy-job agy-cost-compare agy-doctor cloud-debug agy-trace measure-session agy-media; do
@@ -1916,7 +1937,7 @@ oe_case prose      0 "# a bare $oe_open() uses the locale"
 echo "== markdown instructions invoke bin/ via \${CLAUDE_PLUGIN_ROOT}/bin/ =="
 # Claude Code documents plugin bin/ as on PATH, but on Windows no plugin bin/ reaches PATH.
 # Markdown instructions in commands/, skills/, agents/ must invoke tools via "${CLAUDE_PLUGIN_ROOT}/bin/<tool>".
-if python3 "$HERE/check-bin-invocation.py" "$ROOT"/commands/*.md "$ROOT"/skills/*/*.md "$ROOT"/agents/*.md; then
+if python3 "$HERE/check-bin-invocation.py" "$ROOT"/commands/*.md "$ROOT"/skills/*/*.md "$ROOT"/skills/*/references/*.md "$ROOT"/agents/*.md; then
   echo "ok: no bare bin/ tool invocations in commands, skills, or agents"; PASS=$((PASS+1));
 else echo "FAIL: found bare bin/ tool invocation (see above)"; FAIL=$((FAIL+1)); fi
 bi_case() { # $1 = label, $2 = expected rc, $3 = file body

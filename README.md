@@ -342,7 +342,8 @@ Delegation doesn't save money by itself — these do (also in the skill):
 
 ```
 .claude-plugin/   plugin (+ userConfig: default_tier, timeout, coding_policy) + marketplace manifests
-skills/antigravity/SKILL.md   WHEN + HOW Claude collaborates with agy
+skills/antigravity/SKILL.md   WHEN + HOW Claude collaborates with agy (rules, call syntax, gates)
+skills/antigravity/references/   recipes, cost measurements, operations: read only when that path is taken
 agents/           antigravity-delegate subagent (file work runs on Gemini, not Claude)
 commands/         slash commands (delegate, review, research, media, cloud-run-debug, setup, status, result, cancel)
 hooks/            SessionStart: agy health check + auto-inject the cost-aware policy
