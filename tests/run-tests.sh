@@ -1547,6 +1547,27 @@ out=$(PATH="$NOPY:$PATH" STUB_JSON_CAPABLE=1 STUB_MODE=args "$DELEGATE" "hi" 2>/
 if [ "$rc" = 0 ] && ! has "--output-format" "$out"; then echo "ok: no Python: delegate falls back to plain text"; PASS=$((PASS+1));
 else echo "FAIL: no Python: delegate asked for JSON it cannot unwrap (rc=$rc)"; FAIL=$((FAIL+1)); fi
 
+echo "== skill structure (SKILL.md is read in full on every invocation; detail lives in references/) =="
+SK="$ROOT/skills/antigravity"
+n=$(wc -l < "$SK/SKILL.md" | tr -d ' ')
+if [ "$n" -le 250 ]; then echo "ok: SKILL.md is $n lines (<= 250)"; PASS=$((PASS+1)); else echo "FAIL: SKILL.md grew to $n lines (limit 250) - move detail to references/"; FAIL=$((FAIL+1)); fi
+for r in "$SK"/references/*.md; do
+  if grep -qF "references/$(basename "$r")" "$SK/SKILL.md"; then echo "ok: SKILL.md points at $(basename "$r")"; PASS=$((PASS+1));
+  else echo "FAIL: $(basename "$r") is not named in SKILL.md, so nothing will load it"; FAIL=$((FAIL+1)); fi
+done
+for ref in $(grep -o 'references/[a-z-]*\.md' "$SK/SKILL.md" | sort -u); do
+  if [ -f "$SK/$ref" ]; then echo "ok: $ref exists"; PASS=$((PASS+1)); else echo "FAIL: SKILL.md points at missing $ref"; FAIL=$((FAIL+1)); fi
+done
+# what must stay in the file that is always loaded: the exit-code table, the quoted
+# plugin-root invocation (ADR-0003), and the cost rules
+for code in 10 11 12 13 14 15; do
+  if grep -q "\`$code\`" "$SK/SKILL.md"; then echo "ok: SKILL.md still explains exit $code"; PASS=$((PASS+1)); else echo "FAIL: SKILL.md lost exit code $code"; FAIL=$((FAIL+1)); fi
+done
+if grep -qF '"${CLAUDE_PLUGIN_ROOT}/bin/agy-delegate"' "$SK/SKILL.md"; then echo "ok: SKILL.md keeps the quoted plugin-root invocation"; PASS=$((PASS+1)); else echo "FAIL: SKILL.md lost the quoted plugin-root invocation (ADR-0003)"; FAIL=$((FAIL+1)); fi
+for rule in 1 2 3 4 5 6 7 8; do
+  if grep -qE "^$rule\. \*\*" "$SK/SKILL.md"; then echo "ok: SKILL.md keeps cost rule $rule"; PASS=$((PASS+1)); else echo "FAIL: SKILL.md lost cost rule $rule"; FAIL=$((FAIL+1)); fi
+done
+
 echo "== bin/ entrypoints (issue #11: \$CLAUDE_PLUGIN_ROOT not on model-run Bash) =="
 BIN="$ROOT/bin"
 for b in agy-delegate agy-job agy-cost-compare agy-doctor cloud-debug agy-trace measure-session agy-media; do
@@ -1663,7 +1684,7 @@ echo "== --sandbox is not sold as containment =="
 # satisfied the window. check-sandbox-claims.py judges SENTENCES, so each claim carries
 # its own negation or none.
 if python3 "$HERE/check-sandbox-claims.py" "$ROOT"/README.md "$ROOT"/docs/*.md \
-     "$ROOT"/skills/*/SKILL.md "$ROOT"/agents/*.md "$ROOT"/commands/*.md \
+     "$ROOT"/skills/*/SKILL.md "$ROOT"/skills/*/references/*.md "$ROOT"/agents/*.md "$ROOT"/commands/*.md \
      "$ROOT"/scripts/*.sh "$ROOT"/hooks/*.sh; then
   echo "ok: nothing recommends --sandbox as containment"; PASS=$((PASS+1));
 else echo "FAIL: --sandbox described as containment (see above)"; FAIL=$((FAIL+1)); fi
@@ -1916,7 +1937,7 @@ oe_case prose      0 "# a bare $oe_open() uses the locale"
 echo "== markdown instructions invoke bin/ via \${CLAUDE_PLUGIN_ROOT}/bin/ =="
 # Claude Code documents plugin bin/ as on PATH, but on Windows no plugin bin/ reaches PATH.
 # Markdown instructions in commands/, skills/, agents/ must invoke tools via "${CLAUDE_PLUGIN_ROOT}/bin/<tool>".
-if python3 "$HERE/check-bin-invocation.py" "$ROOT"/commands/*.md "$ROOT"/skills/*/*.md "$ROOT"/agents/*.md; then
+if python3 "$HERE/check-bin-invocation.py" "$ROOT"/commands/*.md "$ROOT"/skills/*/*.md "$ROOT"/skills/*/references/*.md "$ROOT"/agents/*.md; then
   echo "ok: no bare bin/ tool invocations in commands, skills, or agents"; PASS=$((PASS+1));
 else echo "FAIL: found bare bin/ tool invocation (see above)"; FAIL=$((FAIL+1)); fi
 bi_case() { # $1 = label, $2 = expected rc, $3 = file body
@@ -2090,7 +2111,7 @@ e15_bad=""
 # diagnostic without describing what produces it, and demanding the taxonomy there is
 # noise in a line someone reads while fixing a rule. CHANGELOG.md is out because its older
 # entries describe what was true when they were written.
-E15_SURFACES="$(cd "$ROOT" && ls -1 README.md docs/*.md skills/*/SKILL.md agents/*.md \
+E15_SURFACES="$(cd "$ROOT" && ls -1 README.md docs/*.md skills/*/SKILL.md skills/*/references/*.md agents/*.md \
                   commands/*.md scripts/*.sh hooks/*.sh 2>/dev/null \
                 | grep -vE '^(CHANGELOG\.md|scripts/doctor\.sh)$')"
 for f in $E15_SURFACES; do
@@ -2863,7 +2884,7 @@ for b in ("agy-delegate", "agy-job", "agy-cost-compare", "agy-doctor", "cloud-de
 
 # regression guard: commands & skill must NOT invoke $CLAUDE_PLUGIN_ROOT/scripts/* — that
 # path expands empty on marketplace installs (issue #11). They must use the bin names.
-for f in glob.glob(p("commands", "*.md")) + [p("skills", "antigravity", "SKILL.md")]:
+for f in glob.glob(p("commands", "*.md")) + [p("skills", "antigravity", "SKILL.md")] + glob.glob(p("skills", "antigravity", "references", "*.md")):
     if os.path.isfile(f):
         t = open(f, encoding="utf-8").read()
         need("CLAUDE_PLUGIN_ROOT}/scripts/" not in t and "CLAUDE_PLUGIN_ROOT/scripts/" not in t,

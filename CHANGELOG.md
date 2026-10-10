@@ -64,6 +64,17 @@ Changes on top of upstream `0.28.0` (fork point `97f8d13`), 2026-09-27 to 2026-1
 
 ### Changed
 
+- **`SKILL.md` is split for progressive disclosure: 533 lines to 249.** It is loaded in full on
+  every invocation, the exact cost the plugin's own discipline warns about. The routing table, call
+  syntax, exit codes, verification gates, write-grant summary and the eight cost rules stay. Moved
+  verbatim into `skills/antigravity/references/`: `recipes.md` (SDLC, internal fan-out, deep
+  research, media), `cost.md` (the batching benchmark, `AGY_USAGE` accounting, rules 6 and 8 in
+  full, economics) and `operations.md` (the write-grant history by agy version, model availability
+  and pricing notes, prerequisites and limits). Rules 6 and 8 and the write-grant bullet keep a
+  short form in `SKILL.md`. Tests pin the size (250 lines), that every reference is named in
+  `SKILL.md` and exists, and that the exit codes, the quoted plugin-root invocation and cost rules
+  1 to 8 did not move out. The bare-`bin/` checker now scans the references too.
+
 - **Every Python `open()` and every stream is UTF-8**, not the locale code page, in `scripts/`,
   `hooks/`, `bin/`, `tests/` and `ci.yml`. `doctor`'s embedded `-c` programs are ASCII-only. (6ff6963)
 - **`agy-delegate -` keeps a prompt's trailing newlines.** stdin is read with
