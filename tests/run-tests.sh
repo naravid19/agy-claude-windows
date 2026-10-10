@@ -1131,6 +1131,23 @@ AGY_FLASH_CACHE="$RC" STUB_MODELS="gemini-9.7-flash-high gemini-9.7-flash-low" b
 check "refresh via the agy stub" 0 "$rc"
 check "refresh stored the stub's newest Low" 0 0 "Gemini 9.7 Flash (Low)" "$(rs Low)"
 
+# failure paths (review): the refresh runs in a subshell that inherits the wrapper's
+# `set -e`, so a failing agy used to skip the cleanup and leak a temp file each time
+FT="$TMP/ft-tmp"; mkdir -p "$FT/ok" "$FT/bad" "$FT/pro"
+printf '#!/bin/sh\nexit 3\n' > "$FT/bad/agy"; chmod +x "$FT/bad/agy"
+printf '#!/bin/sh\nprintf "%%s\\n" gemini-3.1-pro-high\n' > "$FT/pro/agy"; chmod +x "$FT/pro/agy"
+for _k in bad pro; do
+  TMPDIR="$FT/ok" PATH="$FT/$_k:$PATH" AGY_FLASH_CACHE="$FT/ok/$_k.cache" bash -c 'set -euo pipefail; . "$1"; ( flash_cache_refresh ) >/dev/null 2>&1 </dev/null & wait' _ "$ROOT/scripts/model-resolver.sh"
+  _n="$(find "$FT/ok" -name 'agy-models.*' | wc -l | tr -d ' ')"
+  check "failed refresh ($_k) leaves no temp file behind, even under set -e" 0 0 "0" "$_n"
+done
+err=$(AGY_FLASH_CACHE="/nonexistent-dir/x.cache" bash -c '. "$1"; flash_cache_write <<<"gemini-1-flash-high"' _ "$ROOT/scripts/model-resolver.sh" 2>&1 >/dev/null); rc=$?
+check "an unwritable cache path fails quietly" 1 "$rc"
+if [ -z "$err" ]; then echo "ok: no stderr noise when the cache cannot be written"; PASS=$((PASS+1)); else echo "FAIL: stderr leaked: $err"; FAIL=$((FAIL+1)); fi
+# no predictable temp names in a shared dir: the cache temp file comes from mktemp, the lock is a mkdir
+if grep -qE '\$FLASH_CACHE\.\$\$|: > "\$lock"' "$ROOT/scripts/model-resolver.sh"; then
+  echo "FAIL: resolver uses a predictable file name in the temp dir"; FAIL=$((FAIL+1)); else echo "ok: resolver uses mktemp / mkdir, no predictable file names"; PASS=$((PASS+1)); fi
+
 # the wrapper reads the cache, and exact settings still win over it
 printf 'High=Gemini 9.9 Flash (High)\nLow=Gemini 9.9 Flash (Low)\n' > "$RC"
 out=$(AGY_FLASH_CACHE="$RC" "$DELEGATE" --print-command "hi" 2>/dev/null); rc=$?
@@ -1150,7 +1167,7 @@ SLOWBIN="$TMP/slowbin"; SLOWN="$TMP/slow.count"; mkdir -p "$SLOWBIN"
 printf '#!/bin/sh\nif [ "$1" = models ]; then echo x >> "%s"; sleep 3; printf "%%s\\n" gemini-9.9-flash-high gemini-9.9-flash-low; exit 0; fi\nexec "%s" "$@"\n' "$SLOWN" "$TMP/bin/agy" > "$SLOWBIN/agy"
 chmod +x "$SLOWBIN/agy"
 slow_count() { [ -f "$SLOWN" ] && wc -l < "$SLOWN" | tr -d ' ' || echo 0; }
-SC="$TMP/slow-run.cache"; rm -f "$SC" "$SC.lock" "$SLOWN"
+SC="$TMP/slow-run.cache"; rm -rf "$SC" "$SC.lock" "$SLOWN"
 t0=$SECONDS
 out=$(PATH="$SLOWBIN:$PATH" AGY_FLASH_CACHE="$SC" STUB_MODE=text timeout 30 "$DELEGATE" "hi" 2>/dev/null); rc=$?
 dt=$((SECONDS - t0))
@@ -1161,15 +1178,21 @@ for _i in 1 2 3 4 5 6 7 8 9 10 11 12; do [ -s "$SC" ] && break; sleep 1; done
 check "background refresh filled the cache" 0 0 "Gemini 9.9 Flash (High)" "$(AGY_FLASH_CACHE="$SC" bash -c '. "$1"; flash_for_effort High' _ "$ROOT/scripts/model-resolver.sh")"
 check "a second call inside the lock window did not start another refresh" 0 0 "1" "$(slow_count)"
 # dry run and a fresh cache must never spawn a refresh
-rm -f "$SC" "$SC.lock" "$SLOWN"
+rm -rf "$SC" "$SC.lock" "$SLOWN"
 PATH="$SLOWBIN:$PATH" AGY_FLASH_CACHE="$SC" "$DELEGATE" --print-command "hi" >/dev/null 2>&1; sleep 1
 check "--print-command starts no refresh" 0 0 "0" "$(slow_count)"
 printf 'High=Gemini 9.9 Flash (High)\nLow=Gemini 9.9 Flash (Low)\n' > "$SC"
 PATH="$SLOWBIN:$PATH" AGY_FLASH_CACHE="$SC" STUB_MODE=text "$DELEGATE" "hi" >/dev/null 2>&1; sleep 1
 check "a fresh cache starts no refresh" 0 0 "0" "$(slow_count)"
-rm -f "$SC" "$SC.lock" "$SLOWN"
+rm -rf "$SC" "$SC.lock" "$SLOWN"
 PATH="$SLOWBIN:$PATH" AGY_FLASH_CACHE="$SC" CLAUDE_PLUGIN_OPTION_TIER_FLASH="Gemini 1.0 Flash (High)" CLAUDE_PLUGIN_OPTION_TIER_FLASH_LO="Gemini 1.0 Flash (Low)" STUB_MODE=text "$DELEGATE" "hi" >/dev/null 2>&1; sleep 1
 check "both Flash tiers remapped -> no refresh" 0 0 "0" "$(slow_count)"
+rm -rf "$SC" "$SC.lock" "$SLOWN"
+PATH="$SLOWBIN:$PATH" AGY_FLASH_CACHE="$SC" STUB_MODE=text "$DELEGATE" --model "Gemini 2.0 Flash (High)" "hi" >/dev/null 2>&1; sleep 1
+check "an explicit --model starts no refresh" 0 0 "0" "$(slow_count)"
+rm -rf "$SC" "$SC.lock" "$SLOWN"
+PATH="$SLOWBIN:$PATH" AGY_FLASH_CACHE="$SC" STUB_MODE=text "$DELEGATE" "hi" >/dev/null 2>&1; sleep 1
+if [ -d "$SC.lock" ]; then echo "ok: the refresh lock is a directory (atomic mkdir)"; PASS=$((PASS+1)); else echo "FAIL: refresh lock is not a directory"; FAIL=$((FAIL+1)); fi
 
 echo "== delegate subagent guardrail =="
 GATE="$HOOKS/validate-delegate-bash.sh"

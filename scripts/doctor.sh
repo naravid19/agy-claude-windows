@@ -359,7 +359,7 @@ if command -v agy >/dev/null 2>&1; then
     ok "agy authenticated — $(printf '%s' "$MODELS" | grep -c . ) models available"
     # 2b. configured tier->model names exist (respecting userConfig remaps). agy is
     # multi-model and plan-dependent, so a miss is a WARNING, not a failure.
-    flash_cache_write <<<"$MODELS" || true   # we hold a fresh answer: refresh the delegate's cache
+    flash_cache_write <<<"$MODELS"   # we hold a fresh answer: refresh the delegate's cache
     FLASH="${CLAUDE_PLUGIN_OPTION_TIER_FLASH:-$(flash_for_effort High)}"
     FLASH_LO="${CLAUDE_PLUGIN_OPTION_TIER_FLASH_LO:-$(flash_for_effort Low)}"
     PRO="${CLAUDE_PLUGIN_OPTION_TIER_PRO:-Gemini 3.1 Pro (High)}"

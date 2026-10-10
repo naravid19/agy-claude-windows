@@ -432,9 +432,9 @@ if [ "$PRINT_CMD" -eq 1 ]; then
   exit 0
 fi
 
-# Keep the Flash default current without ever waiting for it: only worth doing when this
-# call could have used it, i.e. no explicit model and no tier remap.
-if [ -z "${CLAUDE_PLUGIN_OPTION_TIER_FLASH:-}${CLAUDE_PLUGIN_OPTION_TIER_FLASH_LO:-}" ]; then
+# Keep the Flash default current without ever waiting for it. Skipped when --model or
+# default_model chose the model (USAGE_TIER is empty) and when both Flash tiers are remapped.
+if [ -n "$USAGE_TIER" ] && [ -z "${CLAUDE_PLUGIN_OPTION_TIER_FLASH:-}${CLAUDE_PLUGIN_OPTION_TIER_FLASH_LO:-}" ]; then
   flash_cache_refresh_async
 fi
 

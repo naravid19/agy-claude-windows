@@ -84,27 +84,32 @@ flash_cache_write() {
   hi="$(latest_flash_from_models High <<<"$models")"
   lo="$(latest_flash_from_models Low <<<"$models")"
   [ -n "$hi" ] || return 1
-  tmp="$FLASH_CACHE.$$"
-  printf 'High=%s\nLow=%s\n' "$hi" "${lo:-$FLASH_LOW_FALLBACK}" > "$tmp" 2>/dev/null || return 1
+  # mktemp, not a name we can predict: the cache lives in a shared temp dir.
+  tmp="$(mktemp "$FLASH_CACHE.XXXXXX" 2>/dev/null)" || return 1
+  printf 'High=%s
+Low=%s
+' "$hi" "${lo:-$FLASH_LOW_FALLBACK}" > "$tmp" || { rm -f "$tmp"; return 1; }
   mv -f "$tmp" "$FLASH_CACHE" 2>/dev/null || { rm -f "$tmp"; return 1; }
 }
 
 # Run `agy models` (bounded) and refresh the cache. Synchronous; callers detach it.
 # agy's stdout goes to a file, not a pipe: its MCP children inherit the descriptor and a
-# pipe they hold open would stall the capture forever (issue #37).
+# pipe they hold open would stall the capture forever (issue #37). The detached copy runs
+# under the wrapper's `set -e`, so every step that may fail is guarded: the temp file must
+# be removed on every path.
 flash_cache_refresh() {
   command -v agy >/dev/null 2>&1 || return 1
-  local f guard=""
+  local f guard="" rc=0
   f="$(mktemp "${TMPDIR:-/tmp}/agy-models.XXXXXX")" || return 1
   if   command -v timeout  >/dev/null 2>&1; then guard=timeout
   elif command -v gtimeout >/dev/null 2>&1; then guard=gtimeout
   fi
   if [ -n "$guard" ]; then
-    "$guard" --kill-after=5 "$FLASH_REFRESH_TIMEOUT" agy models >"$f" 2>/dev/null </dev/null
+    "$guard" --kill-after=5 "$FLASH_REFRESH_TIMEOUT" agy models >"$f" 2>/dev/null </dev/null || true
   else
-    agy models >"$f" 2>/dev/null </dev/null
+    agy models >"$f" 2>/dev/null </dev/null || true
   fi
-  flash_cache_write < "$f"; local rc=$?
+  flash_cache_write < "$f" || rc=$?
   rm -f "$f"
   return "$rc"
 }
@@ -113,9 +118,11 @@ flash_cache_refresh() {
 # lock window. Returns at once; the call that triggers it keeps the cached/fallback model.
 flash_cache_refresh_async() {
   if [ -e "$FLASH_CACHE" ] && [ -n "$(find "$FLASH_CACHE" -mmin "-$FLASH_CACHE_TTL_MIN" 2>/dev/null)" ]; then return 0; fi
+  # The lock is a directory: mkdir is atomic and never follows a planted symlink. One older
+  # than the lock window is stale and is replaced.
   local lock="$FLASH_CACHE.lock"
-  if [ -e "$lock" ] && [ -n "$(find "$lock" -mmin "-$FLASH_REFRESH_LOCK_MIN" 2>/dev/null)" ]; then return 0; fi
-  : > "$lock" 2>/dev/null || return 0
+  if [ -d "$lock" ] && [ -z "$(find "$lock" -mmin "-$FLASH_REFRESH_LOCK_MIN" 2>/dev/null)" ]; then rmdir "$lock" 2>/dev/null || true; fi
+  mkdir "$lock" 2>/dev/null || return 0
   ( flash_cache_refresh ) >/dev/null 2>&1 </dev/null &
   disown 2>/dev/null || true
   return 0

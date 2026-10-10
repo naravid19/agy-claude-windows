@@ -201,7 +201,8 @@ the pinned Gemini 3.8 Flash is used.
 
 **Fix:** run `agy-doctor` — it refreshes the cache from the `agy models` answer it already
 fetched. To pin a model and stop following new releases, set `tier_flash` / `tier_flash_lo`.
-Delete the cache file to force a re-resolve. If the cached model has left your plan, the
+Delete the cache file (and its `.lock` directory) to force a re-resolve; `AGY_FLASH_CACHE=<path>`
+moves it. If the cached model has left your plan, the
 delegation exits 14 naming the fix, and the next background refresh corrects the cache.
 
 ---
