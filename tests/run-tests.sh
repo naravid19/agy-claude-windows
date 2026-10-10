@@ -36,8 +36,8 @@ PASS=0; FAIL=0; SKIP=0
 # is added here once. DOC_SURFACES is everything a human or agent reads; AGENT_SURFACES is
 # the subset that instructs the model what to run.
 shopt -s nullglob
-DOC_SURFACES=("$ROOT"/README.md "$ROOT"/docs/*.md "$ROOT"/skills/*/SKILL.md "$ROOT"/skills/*/references/*.md "$ROOT"/agents/*.md "$ROOT"/commands/*.md)
-AGENT_SURFACES=("$ROOT"/skills/*/SKILL.md "$ROOT"/skills/*/references/*.md "$ROOT"/agents/*.md "$ROOT"/commands/*.md)
+DOC_SURFACES=("$ROOT"/README.md "$ROOT"/docs/*.md "$ROOT"/skills/*/*.md "$ROOT"/skills/*/references/*.md "$ROOT"/agents/*.md "$ROOT"/commands/*.md)
+AGENT_SURFACES=("$ROOT"/skills/*/*.md "$ROOT"/skills/*/references/*.md "$ROOT"/agents/*.md "$ROOT"/commands/*.md)
 shopt -u nullglob
 AGENT_SURFACES_NL="$(printf '%s\n' "${AGENT_SURFACES[@]}")"; export AGENT_SURFACES_NL
 
@@ -138,26 +138,6 @@ order_case defined-first  0 'hlp() { :; }\nif hlp a b; then :; fi'
 order_case quoted-mention 0 'echo "hlp to be defined"\nhlp() { :; }'
 
 has() { case "$2" in *"$1"*) return 0 ;; *) return 1 ;; esac; }
-
-echo "== every claim guard scans one shared list of doc surfaces =="
-# Moving text into skills/antigravity/references/ slipped past three guards that each had
-# their own glob. They now all take DOC_SURFACES / AGENT_SURFACES (defined once, above), and
-# this fails the next guard that spells a doc glob out again.
-hard="$(python3 - "$0" <<'PY'
-import re, sys
-bad = []
-for n, line in enumerate(open(sys.argv[1], encoding="utf-8"), 1):
-    s = line.strip()
-    if s.startswith(("#", "DOC_SURFACES=", "AGENT_SURFACES=")): continue
-    if re.search(r'skills/\*/|\$ROOT"/(docs|commands|agents)/\*\.md', s): bad.append(str(n))
-print(" ".join(bad))
-PY
-)"
-if [ -z "$hard" ] && [ "${#DOC_SURFACES[@]}" -gt 0 ] && [ "${#AGENT_SURFACES[@]}" -gt 0 ]; then
-  echo "ok: no guard spells out its own doc glob (${#DOC_SURFACES[@]} doc surfaces, ${#AGENT_SURFACES[@]} agent surfaces)"; PASS=$((PASS+1));
-else echo "FAIL: guards with their own doc glob, or the shared lists are empty (lines: ${hard:-none})"; FAIL=$((FAIL+1)); fi
-case " ${DOC_SURFACES[*]} " in *"/skills/antigravity/references/recipes.md "*) echo "ok: DOC_SURFACES includes the references"; PASS=$((PASS+1)) ;;
-  *) echo "FAIL: DOC_SURFACES misses skills/antigravity/references/"; FAIL=$((FAIL+1)) ;; esac
 
 
 # --- stub `agy` on PATH; behavior controlled by $STUB_MODE -------------------
@@ -370,6 +350,7 @@ check() { # desc  expected_rc  actual_rc  [substr]  [actual_out]
   echo "ok: $desc"; PASS=$((PASS+1))
 }
 
+# --- end of setup: the sections start below (tests/run-section.sh cuts the suite here) ---
 echo "== agy-delegate.sh =="
 
 out=$(STUB_MODE=text "$DELEGATE" "hello" 2>/dev/null); rc=$?
@@ -1596,6 +1577,16 @@ hyg_case pid-braced       1 'tmp="${CACHE}.$$"'
 hyg_case pid-tmp-literal  1 'f=/tmp/agy-out.$$'
 hyg_case late-redirect    1 'printf x > "$tmp" 2>/dev/null || return 1'
 hyg_case late-redirect-echo 1 'echo x >"$tmp" 2>/dev/null'
+hyg_case pid-after-subst  1 'tmp=$(mktemp).$$'
+hyg_case pid-dash-suffix  1 'f=/tmp/x-$$'
+hyg_case pid-dir-prefix   1 'mv x "$d/$$.tmp"'
+hyg_case late-append      1 'printf x >> "$f" 2>/dev/null'
+hyg_case late-after-and   1 'foo && echo hi > "$f" 2>/dev/null'
+hyg_case late-after-if    1 'if cat a > "$b" 2>/dev/null; then :; fi'
+hyg_case late-after-pipe  1 'echo x | cat > "$b" 2>/dev/null'
+hyg_case redirect-to-null-ok 0 'echo x > /dev/null 2>&1'
+hyg_case silencer-first-ok 0 'cmd 2>/dev/null >"$f"'
+hyg_case lone-pid-ok      0 'kill $$'
 hyg_case mktemp-is-fine   0 'f="$(mktemp "${TMPDIR:-/tmp}/x.XXXXXX")"'
 hyg_case grouped-is-fine  0 '{ printf x > "$tmp"; } 2>/dev/null || return 1'
 hyg_case no-silence-fine  0 'printf x > "$tmp" || return 1'
@@ -1620,6 +1611,42 @@ out="$(bash "$HERE/run-section.sh" "no such section anywhere" 2>&1)"; rc=$?
 check "an unknown section exits 2 and says so" 2 "$rc" "no section matches" "$out"
 bash "$HERE/run-section.sh" >/dev/null 2>&1; rc=$?
 check "run-section with no argument exits 2 (usage)" 2 "$rc"
+# the first version of this runner false-passed: it cut the setup at the first heading, so
+# the stubs and check() were missing and `command not found` left FAIL untouched
+out="$(bash "$HERE/run-section.sh" "model-resolver" 2>&1)"; rc=$?
+check "a section that needs check() and the stubs runs (setup is the whole preamble)" 0 "$rc" "PASS=" "$out"
+if has "command not found" "$out"; then echo "FAIL: model-resolver section hit a missing helper"; FAIL=$((FAIL+1)); else echo "ok: no missing helper in the model-resolver section"; PASS=$((PASS+1)); fi
+RS_SUITE="$TMP/rs-suite.sh"
+printf '%s\n' 'HERE=/x' 'PASS=5; FAIL=0' '# --- end of setup: test' 'echo "== needs helper =="' 'helper_defined_elsewhere_xyz' 'echo "== counts =="' 'PASS=$((PASS+1))' 'if [ "$SKIP" -gt 0 ]; then :; fi' > "$RS_SUITE"
+out="$(RUN_SECTION_SUITE="$RS_SUITE" bash "$HERE/run-section.sh" "needs helper" 2>&1)"; rc=$?
+check "a missing helper is a failure, not a pass" 1 "$rc" "needs a helper defined in an earlier section" "$out"
+out="$(RUN_SECTION_SUITE="$RS_SUITE" bash "$HERE/run-section.sh" "counts" 2>&1)"; rc=$?
+check "the setup's own passes are not counted as the section's" 0 "$rc" "PASS=1 FAIL=0" "$out"
+# the install path may hold "&" and a space (an & already broke inject-policy once); "|" cannot exist on NTFS
+RS_TREE="$TMP/a&b c"; mkdir -p "$RS_TREE"
+(cd "$ROOT" && tar -cf - --exclude=./.git --exclude=./resource --exclude=./.scratch .) | (cd "$RS_TREE" && tar -xf -)
+out="$(bash "$RS_TREE/tests/run-section.sh" "skill structure" 2>&1)"; rc=$?
+check "run-section works from a path containing &" 0 "$rc" "PASS=" "$out"
+
+echo "== every claim guard scans one shared list of doc surfaces =="
+# Moving text into skills/antigravity/references/ slipped past three guards that each had
+# their own glob. They now all take DOC_SURFACES / AGENT_SURFACES (defined once, above), and
+# this fails the next guard that spells a doc glob out again.
+hard="$(python3 - "$0" <<'PY'
+import re, sys
+bad = []
+for n, line in enumerate(open(sys.argv[1], encoding="utf-8"), 1):
+    s = line.strip()
+    if s.startswith(("#", "DOC_SURFACES=", "AGENT_SURFACES=")): continue
+    if re.search(r'skills/\*/|\$ROOT"/(docs|commands|agents)/\*\.md', s): bad.append(str(n))
+print(" ".join(bad))
+PY
+)"
+if [ -z "$hard" ] && [ "${#DOC_SURFACES[@]}" -gt 0 ] && [ "${#AGENT_SURFACES[@]}" -gt 0 ]; then
+  echo "ok: no guard spells out its own doc glob (${#DOC_SURFACES[@]} doc surfaces, ${#AGENT_SURFACES[@]} agent surfaces)"; PASS=$((PASS+1));
+else echo "FAIL: guards with their own doc glob, or the shared lists are empty (lines: ${hard:-none})"; FAIL=$((FAIL+1)); fi
+case " ${DOC_SURFACES[*]} " in *"/skills/antigravity/references/recipes.md "*) echo "ok: DOC_SURFACES includes the references"; PASS=$((PASS+1)) ;;
+  *) echo "FAIL: DOC_SURFACES misses skills/antigravity/references/"; FAIL=$((FAIL+1)) ;; esac
 
 echo "== skill structure (SKILL.md is read in full on every invocation; detail lives in references/) =="
 SK="$ROOT/skills/antigravity"

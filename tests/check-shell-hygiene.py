@@ -14,8 +14,14 @@ A line carrying `# hygiene-ok: <reason>` is left alone. Exit: 0 clean, 1 found s
 import re
 import sys
 
-PID_NAME = re.compile(r"""[\w}"']\.\$\$""")
-LATE_REDIRECT = re.compile(r"""^\s*(printf|echo|cat)\b[^#|]*[^2&>]>\s*("[^"]*"|'[^']*'|[^\s"'>|&]+)\s+2>\s*/dev/null""")
+# `$$` glued to a name: "$X.$$", /tmp/x-$$, "$d/$$.tmp", $(mktemp).$$. A lone $$ (echo "$$",
+# kill $$) is not a file name.
+PID_NAME = re.compile(r"""[\w})\].\-/]\$\$""")
+# printf|echo|cat writing a file (> or >>) with the stderr silencer AFTER it, at the start of
+# a command: line start, after ; & | (, or after then/do/if/else.
+LATE_REDIRECT = re.compile(
+    r"""(?:^|[;&|(]|\b(?:then|do|if|else)\b)\s*(?:printf|echo|cat)\b[^#|;&<>]*(?<![2&>])>>?\s*"""
+    r"""("[^"]*"|'[^']*'|[^\s"'>|&;]+)\s+2>\s*/dev/null""")
 
 
 def problems(path):
