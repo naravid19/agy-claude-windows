@@ -40,6 +40,15 @@ bash tests/run-tests.sh          # dependency-free; stubs `agy`, no network
 shellcheck scripts/*.sh tests/*.sh   # CI gates on --severity=error
 ```
 
+The suite runs for minutes. To iterate on one area, run one section: `bash tests/run-section.sh --list` names them, `bash tests/run-section.sh "propagate-yolo"` runs the one whose heading contains that text (a section that uses a helper from an earlier one needs the full suite).
+
+Testing on Windows (Git Bash) has four traps no config confesses:
+
+- Do not edit `tests/run-tests.sh` while a run is in flight. Bash reads a script as it goes, so an edit mid-run ends in `syntax error near unexpected token`. Run from a copy or a `git worktree`, or use `run-section.sh`, which reads a copy.
+- MSYS rewrites `/c/...` strings in command-line arguments and environment values handed to a native program such as Python. A test that needs the literal path passes it on stdin.
+- `ln -s` makes a copy rather than a symlink, so a symlink-following bug cannot be reproduced on this setup. Cover it with `tests/check-shell-hygiene.py`, which bans the predictable temp names that make it exploitable.
+- Markdown files check out as CRLF (`.gitattributes` pins only `*.sh`, `*.py` and `bin/*` to LF). A script that edits one with an exact multi-line string must read it with `newline=''` and match both endings.
+
 - **Tests pass** and shellcheck is clean (CI runs both — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml)). CI runs the suite on Ubuntu **and** on macOS `/bin/bash` 3.2, so a bash-4-ism fails there even if it passed for you on Linux.
 - If you touch a manifest, `python3 -c "import json; json.load(open('.claude-plugin/plugin.json', encoding='utf-8'))"` (and `marketplace.json`, `prices.json`) still parse.
 - **Keep the skill honest.** [`skills/antigravity/SKILL.md`](skills/antigravity/SKILL.md) is the plugin's brain — if behavior changes, update it. Don't claim a capability the code doesn't have. It is loaded in full on every invocation, so it stays at 250 lines or fewer (a test enforces it): rules, call syntax and gates go there, long recipes, measurements and per-version history go in `skills/antigravity/references/`.
