@@ -1684,7 +1684,7 @@ echo "== --sandbox is not sold as containment =="
 # satisfied the window. check-sandbox-claims.py judges SENTENCES, so each claim carries
 # its own negation or none.
 if python3 "$HERE/check-sandbox-claims.py" "$ROOT"/README.md "$ROOT"/docs/*.md \
-     "$ROOT"/skills/*/SKILL.md "$ROOT"/agents/*.md "$ROOT"/commands/*.md \
+     "$ROOT"/skills/*/SKILL.md "$ROOT"/skills/*/references/*.md "$ROOT"/agents/*.md "$ROOT"/commands/*.md \
      "$ROOT"/scripts/*.sh "$ROOT"/hooks/*.sh; then
   echo "ok: nothing recommends --sandbox as containment"; PASS=$((PASS+1));
 else echo "FAIL: --sandbox described as containment (see above)"; FAIL=$((FAIL+1)); fi
@@ -2111,7 +2111,7 @@ e15_bad=""
 # diagnostic without describing what produces it, and demanding the taxonomy there is
 # noise in a line someone reads while fixing a rule. CHANGELOG.md is out because its older
 # entries describe what was true when they were written.
-E15_SURFACES="$(cd "$ROOT" && ls -1 README.md docs/*.md skills/*/SKILL.md agents/*.md \
+E15_SURFACES="$(cd "$ROOT" && ls -1 README.md docs/*.md skills/*/SKILL.md skills/*/references/*.md agents/*.md \
                   commands/*.md scripts/*.sh hooks/*.sh 2>/dev/null \
                 | grep -vE '^(CHANGELOG\.md|scripts/doctor\.sh)$')"
 for f in $E15_SURFACES; do
@@ -2884,7 +2884,7 @@ for b in ("agy-delegate", "agy-job", "agy-cost-compare", "agy-doctor", "cloud-de
 
 # regression guard: commands & skill must NOT invoke $CLAUDE_PLUGIN_ROOT/scripts/* — that
 # path expands empty on marketplace installs (issue #11). They must use the bin names.
-for f in glob.glob(p("commands", "*.md")) + [p("skills", "antigravity", "SKILL.md")]:
+for f in glob.glob(p("commands", "*.md")) + [p("skills", "antigravity", "SKILL.md")] + glob.glob(p("skills", "antigravity", "references", "*.md")):
     if os.path.isfile(f):
         t = open(f, encoding="utf-8").read()
         need("CLAUDE_PLUGIN_ROOT}/scripts/" not in t and "CLAUDE_PLUGIN_ROOT/scripts/" not in t,

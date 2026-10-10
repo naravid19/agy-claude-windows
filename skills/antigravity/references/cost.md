@@ -4,7 +4,7 @@ The cost *rules* stay in `SKILL.md`. This is the measured detail behind them.
 
 ## Batching: the number of delegations is the lever
 
-Rule 4 above ("batch, don't chatter") is the one that actually moves the needle, and
+Rule 4 in `SKILL.md` ("batch, don't chatter") is the one that actually moves the needle, and
 here is why, from a benchmark of this plugin
 (Opus 5 conductor · Gemini 3.6 Flash High executor · agy 1.1.8 · n=3/arm, cold cache):
 

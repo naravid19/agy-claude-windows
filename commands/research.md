@@ -4,7 +4,7 @@ argument-hint: "<what to research>"
 ---
 
 Run a multi-source research pass on the topic below, following the `antigravity`
-skill's **Deep-research recipe** and **Verification gates**. Antigravity (`agy` / Gemini)
+skill's **Deep-research recipe** (`references/recipes.md`) and **Verification gates**. Antigravity (`agy` / Gemini)
 is the cheap, grounded search worker; **you (Claude) own the plan, the verification, and
 the synthesis**. agy's print-mode citations are coarse (often domain-level) and it can
 present parametric "knowledge" as a sourced fact — so never ship its citations unchecked.
