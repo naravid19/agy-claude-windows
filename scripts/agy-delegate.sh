@@ -247,9 +247,7 @@ while [ $# -gt 0 ]; do
     -m|--model)     need "$#" "$1"; MODEL="$2"; shift 2 ;;
     --print-command) PRINT_CMD=1; shift ;;          # dry run: show the resolved agy command
     -h|--help)      usage ;;
-    -)              # read prompt from stdin; Linux/macOS keep `$(cat)` (trailing newlines trimmed)
-                    if on_windows_native; then IFS= read -r -d '' PROMPT || true; else PROMPT="$(cat)"; fi
-                    shift ;;
+    -)              IFS= read -r -d '' PROMPT || true; shift ;; # read prompt from stdin
     --)             shift; PROMPT="${*:-}"; break ;;
     -*)             die "unknown option '$1'" ;;
     *)              PROMPT="$*"; break ;;            # rest is the prompt
@@ -498,8 +496,8 @@ if [ "$STREAM_MODE" -eq 1 ]; then
     RC=$?
   fi
 else
-  # Protect Windows Rust binaries (uutils timeout, agy.exe) from aborting on incomplete UTF-8 bytes in argv
-  if on_windows_native && command -v iconv >/dev/null 2>&1; then
+  # Protect Rust binaries (uutils timeout, agy.exe) from aborting on incomplete UTF-8 bytes in argv
+  if command -v iconv >/dev/null 2>&1; then
     _clean="$(printf '%sx' "$PROMPT" | iconv -c -f UTF-8 -t UTF-8 2>/dev/null || true)"
     [ -n "$_clean" ] && PROMPT="${_clean%x}"
   fi
